@@ -1,38 +1,47 @@
 package com.planly.gui.components;
 
+import java.awt.Color;
+import java.awt.Graphics2D;
 import java.awt.Point;
+import java.awt.RenderingHints;
+import java.awt.event.KeyEvent;
+import java.awt.event.MouseEvent;
 
-public class Line
+import com.planly.Utils;
+import com.planly.gui.DrawMode;
+
+public class Line implements Drawable
 {
+    private Graphics2D gCache;
+    private Point tmpStart;
     private Point start;
     private Point end;
+    private DrawMode drawMode;
+    private Color color;
+    private boolean startCloned;
+    private boolean isSelected;
+    private float cachedLengthInPixels;
+    private float cachedLengthInMetters;
+    private float cachedDegrees;
 
-    public Line()
+    public Line(Graphics2D g2d)
     {
+        gCache = g2d;
+        tmpStart = new Point(0, 0);
         start = new Point(0, 0);
         end = new Point(0, 0);
+        drawMode = DrawMode.NORMAL;
+        color = Color.BLACK;
+        startCloned = false;
+        isSelected = false;
+        cachedLengthInPixels = 0;
+        cachedLengthInMetters = 0;
+        cachedDegrees = 0;
     }
 
-    public void setStart(int x, int y)
+    public double getLengthInPixels()
     {
-        start.x = x;
-        start.y = y;
-    }
-
-    public void setEnd(int x, int y)
-    {
-        end.x = x;
-        end.y = y;
-    }
-
-    public Point getStart()
-    {
-        return start;
-    }
-
-    public Point getEnd()
-    {
-        return end;
+        return end.distance(start);
     }
 
     public void flatten()
@@ -88,9 +97,32 @@ public class Line
         }
     }
 
-    public double getLengthInPixels()
+    public boolean isPointOnLine(int x, int y)
     {
-        return end.distance(start);
+        int dx = end.x - start.x;
+        int dy = end.y - start.y;
+
+        double numerator = Math.abs(dy * x - dx * y + end.x * start.y - end.y * start.x);
+        double denominator = Math.sqrt(dx * dx + dy * dy);
+        double distance = numerator / denominator;
+        double tolerance = 10d;
+
+        if (distance > tolerance) {
+            return false;
+        }
+
+        // comprobar que está dentro del segmento
+        double dot = (x - start.x) * dx + (y - start.y) * dy;
+        if (dot < 0) {
+            return false;
+        }
+
+        double lenSq = dx * dx + dy * dy;
+        if (dot > lenSq) {
+            return false;
+        }
+
+        return true;
     }
 
     public double getDegrees()
@@ -104,5 +136,77 @@ public class Line
         }
 
         return degrees;
+    }
+
+    public void paint(Graphics2D g2d)
+    {
+        g2d.clearRect(0, 0, 180, 80);
+        g2d.setColor(Color.BLACK);
+        g2d.drawString("Píxeles: " + cachedLengthInPixels, 20, 20);
+        g2d.drawString("Metros: " + cachedLengthInMetters, 20, 40);
+        g2d.drawString("Grados: " + cachedDegrees, 20, 60);
+        g2d.setColor(color);
+        g2d.drawLine(start.x, start.y, end.x, end.y);
+
+        if (isSelected) {
+            g2d.setColor(Color.BLUE);
+            g2d.drawOval(start.x - 5, start.y - 5, 10, 10);
+            g2d.drawOval(end.x - 5, end.y - 5, 10, 10);
+        }
+    }
+
+    public void mouseClicked(MouseEvent e)
+    {
+        if (isPointOnLine(e.getX(), e.getY())) {
+            color = Color.RED;
+            isSelected = true;
+        } else {
+            color = Color.BLACK;
+            isSelected = false;
+        }
+    }
+
+    public void mousePressed(MouseEvent e)
+    {
+        tmpStart.x = e.getX();
+        tmpStart.y = e.getY();
+    }
+
+    public void mouseReleased(MouseEvent e)
+    {
+        startCloned = false;
+        gCache.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        paint(gCache);
+    }
+
+    public void mouseDragged(MouseEvent e)
+    {
+        end.x = e.getX();
+        end.y = e.getY();
+
+        if (!startCloned) {
+            start = (Point) tmpStart.clone();
+            startCloned = true;
+        }
+
+        if (drawMode.equals(DrawMode.FLATTEN)) {
+            flatten();
+        }
+
+        cachedLengthInPixels = Utils.round(getLengthInPixels());
+        cachedLengthInMetters = Utils.round(Utils.convertToMetters(getLengthInPixels()));
+        cachedDegrees = Utils.round(getDegrees());
+    }
+
+    public void keyReleased(KeyEvent e)
+    {
+        drawMode = DrawMode.NORMAL;
+    }
+
+    public void keyPressed(KeyEvent e)
+    {
+        if (e.getKeyCode() == KeyEvent.VK_SHIFT) {
+            drawMode = DrawMode.FLATTEN;
+        }
     }
 }
