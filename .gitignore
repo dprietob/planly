@@ -1,7 +1,10 @@
-!.mvn/wrapper/maven-wrapper.jar
-!**/src/main/**/target/
-!**/src/test/**/target/
-.kotlin
-.idea
+# Meson build directories
+_build/
+build/
+
+# VS Code
 .vscode/
-target/
+
+# Editor backups
+*~
+*.orig

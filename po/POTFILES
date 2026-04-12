@@ -1,0 +1,6 @@
+src/planly.vala
+src/gui/window.vala
+src/gui/scene.vala
+src/gui/components/line.vala
+data/com.dprietob.planly.desktop.in
+data/com.dprietob.planly.appdata.xml.in

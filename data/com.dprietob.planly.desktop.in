@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Planly
+GenericName=Floor Plan Editor
+Comment=Draw and measure floor plans with real-world scale
+Exec=planly
+Icon=com.dprietob.planly
+Terminal=false
+Type=Application
+Categories=Graphics;Engineering;
+Keywords=plan;floor;draw;measure;architecture;
