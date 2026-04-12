@@ -1,0 +1,77 @@
+# Spanish translations for Planly.
+# Copyright (C) 2026 Daniel Prieto
+# This file is distributed under the same license as the Planly package.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: planly 1.0.0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-04-12 00:00+0000\n"
+"PO-Revision-Date: 2026-04-12 00:00+0000\n"
+"Last-Translator: Daniel Prieto\n"
+"Language-Team: Spanish <es@li.org>\n"
+"Language: es\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: src/gui/scene.vala
+msgid "Pixels: "
+msgstr "Píxeles: "
+
+#: src/gui/scene.vala
+msgid "Meters: "
+msgstr "Metros: "
+
+#: src/gui/scene.vala
+msgid "Degrees: "
+msgstr "Grados: "
+
+#: src/gui/window.vala
+msgid "Dark"
+msgstr "Oscuro"
+
+#: src/gui/window.vala
+msgid "Light"
+msgstr "Claro"
+
+#: src/gui/window.vala
+msgid "System"
+msgstr "Sistema"
+
+#: src/gui/window.vala
+msgid "Appearance"
+msgstr "Apariencia"
+
+#: src/gui/window.vala
+msgid "Main menu"
+msgstr "Menú principal"
+
+#: data/com.dprietob.planly.desktop.in
+msgid "Floor Plan Editor"
+msgstr "Editor de planos"
+
+#: data/com.dprietob.planly.desktop.in
+msgid "Draw and measure floor plans with real-world scale"
+msgstr "Dibuja y mide planos a escala real"
+
+#: data/com.dprietob.planly.appdata.xml.in
+msgid "Floor plan editor"
+msgstr "Editor de planos"
+
+#: data/com.dprietob.planly.appdata.xml.in
+msgid "Planly is a simple, fast floor plan editor. Draw lines on a canvas and instantly see their length in pixels and real-world meters, as well as their angle in degrees."
+msgstr "Planly es un editor de planos sencillo y rápido. Dibuja líneas en el canvas y ve al instante su longitud en píxeles y metros reales, así como su ángulo en grados."
+
+#: data/com.dprietob.planly.appdata.xml.in
+msgid "Hold Shift while drawing to snap lines to the 8 cardinal directions (0°, 45°, 90° …). Click on any existing line to select it."
+msgstr "Mantén Mayús mientras dibujas para fijar las líneas a las 8 direcciones cardinales (0°, 45°, 90°…). Haz clic sobre cualquier línea existente para seleccionarla."
+
+#: data/com.dprietob.planly.appdata.xml.in
+msgid "Drawing lines on the canvas"
+msgstr "Dibujando líneas en el canvas"
+
+#: data/com.dprietob.planly.appdata.xml.in
+msgid "Initial release."
+msgstr "Versión inicial."

@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.dprietob.planly</id>
+
+  <name>Planly</name>
+  <summary translatable="yes">Floor plan editor</summary>
+
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+
+  <description>
+    <p translatable="yes">
+      Planly is a simple, fast floor plan editor. Draw lines on a canvas
+      and instantly see their length in pixels and real-world meters, as
+      well as their angle in degrees.
+    </p>
+    <p translatable="yes">
+      Hold Shift while drawing to snap lines to the 8 cardinal directions
+      (0°, 45°, 90° …). Click on any existing line to select it.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">com.dprietob.planly.desktop</launchable>
+
+  <screenshots>
+    <screenshot type="default">
+      <caption translatable="yes">Drawing lines on the canvas</caption>
+    </screenshot>
+  </screenshots>
+
+  <releases>
+    <release version="1.0.0" date="2026-04-12">
+      <description>
+        <p translatable="yes">Initial release.</p>
+      </description>
+    </release>
+  </releases>
+
+  <content_rating type="oars-1.1"/>
+
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+</component>
