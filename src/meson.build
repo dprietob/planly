@@ -7,15 +7,23 @@ conf.set_quoted('CONFIG_VERSION',         meson.project_version())
 configure_file(output: 'config.h', configuration: conf)
 
 planly_sources = files(
-  'planly.vala',
-  'constants.vala',
-  'utils.vala',
-  'gui/draw-mode.vala',
-  'gui/components/drawable.vala',
-  'gui/components/line.vala',
-  'gui/scene.vala',
-  'gui/window.vala',
-  'project/project.vala',
+  'Planly.vala',
+  'Constants.vala',
+  'Utils.vala',
+  # ── Herramientas ──────────────────────────────────────────────────────
+  'gui/ToolType.vala',
+  'gui/DrawMode.vala',
+  # ── Componentes dibujables ─────────────────────────────────────────────
+  'gui/components/Drawable.vala',
+  'gui/components/Shape.vala',
+  'gui/components/Line.vala',
+  'gui/components/Rect.vala',
+  'gui/components/Circle.vala',
+  # ── UI ────────────────────────────────────────────────────────────────
+  'gui/Scene.vala',
+  'gui/Window.vala',
+  # ── Proyecto ──────────────────────────────────────────────────────────
+  'project/Project.vala',
 )
 
 cc = meson.get_compiler('c')
@@ -28,7 +36,7 @@ planly_deps = [
 
 executable('planly',
   planly_sources,
-  files('config.vapi'),
+  files('Config.vapi'),
   dependencies:  planly_deps,
   vala_args:     ['--target-glib=2.76'],
   install:       true,
