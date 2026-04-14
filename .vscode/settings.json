@@ -7,5 +7,6 @@
     "editor.defaultFormatter": "zachflower.uncrustify",
     "editor.formatOnSave": true
   },
-  "uncrustify.configPath.linux": "${workspaceFolder}/.vscode/uncrustify.cfg"
+  "uncrustify.configPath.linux": "${workspaceFolder}/.vscode/uncrustify.cfg",
+  "mesonbuild.configureOnOpen": false
 }

@@ -3,33 +3,45 @@ namespace Planly
     /**
      * Canvas principal de dibujo.
      *
-     * Gestiona la lista de figuras completadas (con una superficie Cairo de
-     * caché para rendimiento), la figura activa que se está dibujando, y los
-     * controladores de eventos de ratón y teclado de GTK4.
+     * Zoom
+     * ────
+     * Se mantiene zoom_level (factor real, 1.0 = 100 %).  En draw_func se
+     * aplica cr.scale(zoom, zoom) para escalar todo el contenido.  Los
+     * eventos de ratón llegan en coordenadas de widget; se dividen por
+     * zoom_level antes de pasarlos a las figuras, que siempre trabajan en
+     * coordenadas lógicas (espacio del plano a escala 1:1).
      *
-     * Diseño de renderizado:
-     *  1. cache_surface  — superficie ARGB32 con todas las figuras terminadas.
-     *  2. draw_func      — vuelca el cache, luego pinta la figura activa
-     *                      y el panel de métricas.
-     *  3. rebuild_cache  — se llama al terminar una figura o cambiar selección;
-     *                      repinta todas las figuras desde cero.
-     *
-     * Herramienta activa:
-     *  - SELECT : clic selecciona / deselecciona figuras existentes.
-     *  - LINE / RECT / CIRCLE : press+drag+release crea la figura.
+     * Entradas de zoom:
+     *   • Ctrl + rueda del ratón   → zoom_in / zoom_out
+     *   • Ctrl + = / +             → zoom_in
+     *   • Ctrl + -                 → zoom_out
+     *   • Ctrl + 0                 → zoom_reset
+     *   • zoom_in() / zoom_out() / zoom_reset()  (llamados desde StatusBar)
      */
     public class Scene : Gtk.DrawingArea
     {
+        // Zoom
+        private const double ZOOM_STEP = 1.25;
+        private const double ZOOM_MIN  = 0.1;
+        private const double ZOOM_MAX  = 8.0;
+        private double zoom_level = 1.0;
 
-        // ── Estado de dibujo ───────────────────────────────────────────────
+        // Estado de dibujo
         private Shape[]  shapes      = {};
         private Shape?   active      = null;
-        private bool     has_dragged = false;
+        private bool has_dragged = false;
         private ToolType active_tool = ToolType.LINE;
 
-        // ── Caché Cairo ────────────────────────────────────────────────────
+        // Cache Cairo
         private Cairo.ImageSurface cache_surface;
-        private Cairo.Context      cache_cr;
+        private Cairo.Context cache_cr;
+
+        // Controlador de scroll (guardado para poder leer el estado de modificadores)
+        private Gtk.EventControllerScroll scroll_ctrl;
+
+        // Senales
+        public signal void metrics_updated(string size_px, string size_m, string area_m2);
+        public signal void zoom_changed(double level);
 
         // ──────────────────────────────────────────────────────────────────
         construct {
@@ -39,14 +51,13 @@ namespace Planly
             cache_cr = new Cairo.Context(cache_surface);
             clear_cache_to_white();
 
-            set_hexpand(true);
-            set_vexpand(true);
             set_focusable(true);
+            update_size_request();
 
             set_draw_func(draw_func);
             setup_controllers();
 
-            // Temporizador ~60 fps: repinta sólo si hay una figura activa
+            // Temporizador ~60 fps: repinta solo si hay una figura activa
             GLib.Timeout.add(16, () => {
                 if (active != null) {
                     queue_draw();
@@ -55,21 +66,44 @@ namespace Planly
             });
         }
 
-        // ── API pública ────────────────────────────────────────────────────
+        // API publica: herramienta
 
-        /** Cambia la herramienta activa. Llamado desde Window. */
         public void set_tool(ToolType tool)
         {
             active_tool = tool;
-
-            // Al cambiar a SELECT, deseleccionar todo lo activo
             if (active != null) {
                 active = null;
                 queue_draw();
             }
         }
 
-        // ── Controladores de eventos ───────────────────────────────────────
+        // API publica: zoom
+
+        public void zoom_in()
+        {
+            zoom_level = double.min(zoom_level * ZOOM_STEP, ZOOM_MAX);
+            update_size_request();
+            queue_draw();
+            zoom_changed(zoom_level);
+        }
+
+        public void zoom_out()
+        {
+            zoom_level = double.max(zoom_level / ZOOM_STEP, ZOOM_MIN);
+            update_size_request();
+            queue_draw();
+            zoom_changed(zoom_level);
+        }
+
+        public void zoom_reset()
+        {
+            zoom_level = 1.0;
+            update_size_request();
+            queue_draw();
+            zoom_changed(zoom_level);
+        }
+
+        // Controladores de eventos
 
         private void setup_controllers()
         {
@@ -87,6 +121,19 @@ namespace Planly
             key.key_pressed.connect(on_key_pressed);
             key.key_released.connect(on_key_released);
             add_controller(key);
+
+            scroll_ctrl = new Gtk.EventControllerScroll(
+                Gtk.EventControllerScrollFlags.VERTICAL
+                );
+            scroll_ctrl.set_propagation_phase(Gtk.PropagationPhase.CAPTURE);
+            scroll_ctrl.scroll.connect(on_scroll);
+            add_controller(scroll_ctrl);
+        }
+
+        // Convierte coordenada de widget a coordenada logica del plano
+        private double to_canvas(double widget_coord)
+        {
+            return widget_coord / zoom_level;
         }
 
         private void on_pressed(int n_press, double x, double y)
@@ -98,25 +145,40 @@ namespace Planly
 
             active = create_shape();
             if (active != null) {
-                active.on_mouse_pressed(x, y);
+                active.on_mouse_pressed(to_canvas(x), to_canvas(y));
             }
         }
 
         private void on_released(int n_press, double x, double y)
         {
+            double cx = to_canvas(x);
+            double cy = to_canvas(y);
+
             if (active_tool == ToolType.SELECT) {
-                // Seleccionar / deseleccionar la figura bajo el cursor
+                Shape? selected = null;
                 foreach (unowned var shape in shapes) {
-                    shape.set_selected(shape.contains_point(x, y));
+                    bool hit = shape.contains_point(cx, cy);
+                    shape.set_selected(hit);
+                    if (hit) selected = shape;
                 }
                 rebuild_cache();
                 queue_draw();
+
+                if (selected != null) {
+                    metrics_updated(
+                        selected.get_size_px(),
+                        selected.get_size_m(),
+                        selected.get_area_m2()
+                        );
+                } else {
+                    metrics_updated("", "", "");
+                }
                 return;
             }
 
             if (active == null) return;
 
-            active.on_mouse_released(x, y);
+            active.on_mouse_released(cx, cy);
 
             if (has_dragged && active.is_valid()) {
                 shapes += active;
@@ -126,17 +188,39 @@ namespace Planly
             active      = null;
             has_dragged = false;
             queue_draw();
+            metrics_updated("", "", "");
         }
 
         private void on_motion(double x, double y)
         {
             if (active == null) return;
-            active.on_mouse_dragged(x, y);
+            active.on_mouse_dragged(to_canvas(x), to_canvas(y));
             has_dragged = true;
+
+            if (active.has_started()) {
+                metrics_updated(
+                    active.get_size_px(),
+                    active.get_size_m(),
+                    active.get_area_m2()
+                    );
+            }
         }
 
         private bool on_key_pressed(uint keyval, uint keycode, Gdk.ModifierType state)
         {
+            // Atajos de zoom con Ctrl
+            if ((state & Gdk.ModifierType.CONTROL_MASK) != 0) {
+                if (keyval == '+' || keyval == '=') {
+                    zoom_in();    return true;
+                }
+                if (keyval == '-') {
+                    zoom_out();   return true;
+                }
+                if (keyval == '0') {
+                    zoom_reset(); return true;
+                }
+            }
+
             if (active != null) active.on_key_pressed(keyval);
             return false;
         }
@@ -146,7 +230,20 @@ namespace Planly
             if (active != null) active.on_key_released(keyval);
         }
 
-        // ── Fábrica de figuras ─────────────────────────────────────────────
+        private bool on_scroll(double dx, double dy)
+        {
+            var ev = scroll_ctrl.get_current_event();
+            if (ev == null) return false;
+
+            var mods = ev.get_modifier_state();
+            if ((mods & Gdk.ModifierType.CONTROL_MASK) == 0) return false;
+
+            if (dy < 0) zoom_in();
+            else if (dy > 0) zoom_out();
+            return true;
+        }
+
+        // Fabrica de figuras
 
         private Shape? create_shape()
         {
@@ -158,75 +255,39 @@ namespace Planly
             }
         }
 
-        // ── Renderizado ────────────────────────────────────────────────────
+        // Helpers internos
+
+        private void update_size_request()
+        {
+            set_size_request(
+                (int)(WINDOW_WIDTH  * zoom_level),
+                (int)(WINDOW_HEIGHT * zoom_level)
+                );
+        }
+
+        // Renderizado
 
         private void draw_func(Gtk.DrawingArea area, Cairo.Context cr,
             int width, int height)
         {
-            // 1. Fondo blanco
+            // 1. Fondo blanco (sin escalar para cubrir todo el widget)
             cr.set_source_rgb(1, 1, 1);
             cr.paint();
 
-            // 2. Figuras terminadas (desde caché)
+            // 2. Aplicar transformacion de zoom al contenido del plano
+            cr.scale(zoom_level, zoom_level);
+
+            // 3. Figuras terminadas (desde cache)
             cr.set_source_surface(cache_surface, 0, 0);
             cr.paint();
 
-            // 3. Figura activa + panel de métricas
+            // 4. Figura activa
             if (active != null && active.has_started()) {
                 active.paint(cr);
-                draw_metrics_panel(cr, active.get_metrics());
             }
         }
 
-        /**
-         * Panel flotante con las métricas de la figura activa.
-         * El número de filas es dinámico según lo que devuelva get_metrics().
-         */
-        private void draw_metrics_panel(Cairo.Context cr, MetricLine[] metrics)
-        {
-            if (metrics.length == 0) return;
-
-            cr.save();
-
-            // Dimensiones dinámicas del panel
-            double row_h    = 22.0;
-            double pad_v    = 14.0;
-            double pad_h    = 10.0;
-            double panel_w  = 220.0;
-            double panel_h  = pad_v * 2 + metrics.length * row_h;
-
-            // Fondo semitransparente
-            cr.set_source_rgba(1, 1, 1, 0.88);
-            cr.rectangle(10, 10, panel_w, panel_h);
-            cr.fill();
-
-            // Borde sutil
-            cr.set_source_rgba(0.6, 0.6, 0.6, 0.6);
-            cr.set_line_width(0.8);
-            cr.rectangle(10, 10, panel_w, panel_h);
-            cr.stroke();
-
-            // Texto
-            cr.set_source_rgb(0.1, 0.1, 0.1);
-            cr.select_font_face("Sans", Cairo.FontSlant.NORMAL, Cairo.FontWeight.NORMAL);
-            cr.set_font_size(12);
-
-            for (int i = 0; i < metrics.length; i++) {
-                double y = 10 + pad_v + (i + 1) * row_h - 4;
-
-                string line_text = metrics[i].label + ":  " + metrics[i].value_px;
-                if (metrics[i].value_m != "") {
-                    line_text += "  /  " + metrics[i].value_m;
-                }
-
-                cr.move_to(10 + pad_h, y);
-                cr.show_text(line_text);
-            }
-
-            cr.restore();
-        }
-
-        // ── Caché ──────────────────────────────────────────────────────────
+        // Cache
 
         private void rebuild_cache()
         {

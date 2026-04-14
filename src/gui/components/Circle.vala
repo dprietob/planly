@@ -10,7 +10,6 @@ namespace Planly
      */
     public class Circle : Shape
     {
-
         // ── Coordenadas ────────────────────────────────────────────────────
         private double center_x;
         private double center_y;
@@ -39,7 +38,7 @@ namespace Planly
         public override MetricLine[] get_metrics()
         {
             return {
-                       metric_px_m(_("Radius"),   _radius_px),
+                       metric_px_m(_("Radius"), _radius_px),
                        metric_px_m(_("Diameter"), _diameter_px)
             };
         }
@@ -49,18 +48,38 @@ namespace Planly
             return _radius_px > 2.0f;
         }
 
+        public override string get_size_px()
+        {
+            return "r: %.3f px".printf(_radius_px);
+        }
+
+        public override string get_size_m()
+        {
+            return "r: %.3f m".printf(Utils.convert_to_metters(_radius_px));
+        }
+
+        public override string get_area_m2()
+        {
+            double r_m = Utils.convert_to_metters(_radius_px);
+            return "%.3f m\xc2\xb2".printf(Math.PI * r_m * r_m);
+        }
+
         public override void paint(Cairo.Context cr)
         {
             cr.save();
-            cr.set_line_width(1.5);
 
+            // Relleno semi-transparente
+            cr.set_source_rgba(fill_r, fill_g, fill_b, fill_a);
+            cr.arc(center_x, center_y, radius, 0, 2.0 * Math.PI);
+            cr.fill_preserve();
+
+            // Trazo (borde) con grosor y color configurables
+            cr.set_line_width(line_width);
             if (_is_selected) {
                 cr.set_source_rgb(0.8, 0.1, 0.1);
             } else {
-                cr.set_source_rgb(0.05, 0.05, 0.05);
+                cr.set_source_rgba(stroke_r, stroke_g, stroke_b, stroke_a);
             }
-
-            cr.arc(center_x, center_y, radius, 0, 2.0 * Math.PI);
             cr.stroke();
 
             if (_is_selected) {
@@ -71,6 +90,22 @@ namespace Planly
             }
 
             cr.restore();
+
+            // Etiqueta de diametro en la parte superior del circulo
+            // "\xe2\x8c\x80" = caracter de diametro (⌀)
+            if (radius >= 20.0) {
+                double d_m = Utils.convert_to_metters(_diameter_px);
+                paint_label(cr, "\xe2\x8c\x80 " + format_m(d_m),
+                    center_x, center_y - radius, false);
+            }
+
+            // Etiqueta de area en el centro
+            if (radius >= 30.0) {
+                double r_m  = Utils.convert_to_metters(_radius_px);
+                double area = Math.PI * r_m * r_m;
+                paint_label(cr, "%.2f m\xc2\xb2".printf(area),
+                    center_x, center_y, false);
+            }
         }
 
         public override void on_mouse_pressed(double x, double y)

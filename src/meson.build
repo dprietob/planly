@@ -22,6 +22,7 @@ planly_sources = files(
   # ── UI ────────────────────────────────────────────────────────────────
   'gui/Scene.vala',
   'gui/Window.vala',
+  'gui/StatusBar.vala',
   # ── Proyecto ──────────────────────────────────────────────────────────
   'project/Project.vala',
 )

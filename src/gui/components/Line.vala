@@ -10,7 +10,6 @@ namespace Planly
      */
     public class Line : Shape
     {
-
         // ── Coordenadas ────────────────────────────────────────────────────
         private double tmp_start_x;
         private double tmp_start_y;
@@ -113,15 +112,30 @@ namespace Planly
             return _length_pixels > 2.0f;
         }
 
+        public override string get_size_px()
+        {
+            return "%.3f px".printf(_length_pixels);
+        }
+
+        public override string get_size_m()
+        {
+            return "%.3f m".printf(_length_metters);
+        }
+
+        public override string get_area_m2()
+        {
+            return "";
+        }
+
         public override void paint(Cairo.Context cr)
         {
             cr.save();
-            cr.set_line_width(1.5);
+            cr.set_line_width(line_width);
 
             if (_is_selected) {
                 cr.set_source_rgb(0.8, 0.1, 0.1);
             } else {
-                cr.set_source_rgb(0.05, 0.05, 0.05);
+                cr.set_source_rgba(stroke_r, stroke_g, stroke_b, stroke_a);
             }
 
             cr.move_to(start_x, start_y);
@@ -135,6 +149,17 @@ namespace Planly
             }
 
             cr.restore();
+
+            // Etiqueta de longitud en el punto medio, desplazada perpendicular al segmento
+            if (_length_pixels >= 30.0f) {
+                double mx    = (start_x + end_x) / 2.0;
+                double my    = (start_y + end_y) / 2.0;
+                double angle = Math.atan2(end_y - start_y, end_x - start_x);
+                double perp  = angle - Math.PI / 2.0;
+                double lx    = mx + Math.cos(perp) * 14.0;
+                double ly    = my + Math.sin(perp) * 14.0;
+                paint_label(cr, format_m(_length_metters), lx, ly, false);
+            }
         }
 
         public override void on_mouse_pressed(double x, double y)
