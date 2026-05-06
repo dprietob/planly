@@ -1,0 +1,5 @@
+<gresources>
+    <gresource prefix="/com/dprietob/planly">
+        <file>icons/symbolic/bulb-symbolic.svg</file>
+    </gresource>
+</gresources>

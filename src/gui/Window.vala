@@ -2,16 +2,6 @@ namespace Planly
 {
     /**
      * Ventana principal de Planly.
-     *
-     * Layout:
-     *  ┌─────────────────────────────────────────────────────┐
-     *  │  HeaderBar: [new][open]  titulo  [save][export][menu]│
-     *  ├──────────┬──────────────────────────────────────────┤
-     *  │ToolPanel │         Scene (canvas)                    │
-     *  │          │                                           │
-     *  ├──────────┴──────────────────────────────────────────┤
-     *  │  StatusBar: escala · px · m · area · unidades | auto │
-     *  └─────────────────────────────────────────────────────┘
      */
     public class Window : Adw.ApplicationWindow
     {
@@ -129,16 +119,11 @@ namespace Planly
 
             Gtk.ToggleButton? first = null;
 
-            first = add_tool_button(panel, first, scene,
-                    ToolType.SELECT, "org.gnome.Settings-accessibility-pointing-symbolic", _("Select (S)"), false);
-            add_tool_button(panel, first, scene,
-                ToolType.LINE, "function-linear-symbolic", _("Line (L)"), true);
-            add_tool_button(panel, first, scene,
-                ToolType.RECT, "checkbox-symbolic", _("Rectangle (R)"), false);
-            add_tool_button(panel, first, scene,
-                ToolType.CIRCLE, "radio-symbolic", _("Circle (C)"), false);
-            add_tool_button(panel, first, scene,
-                ToolType.POLYGON, "input-tablet-symbolic", _("Polygon (P)"), false);
+            first = add_tool_button(panel, first, scene, ToolType.SELECT, "bulb", _("Select (S)"), false);
+            add_tool_button(panel, first, scene, ToolType.LINE, "function-linear-symbolic", _("Line (L)"), true);
+            add_tool_button(panel, first, scene, ToolType.RECT, "checkbox-symbolic", _("Rectangle (R)"), false);
+            add_tool_button(panel, first, scene, ToolType.CIRCLE, "radio-symbolic", _("Circle (C)"), false);
+            add_tool_button(panel, first, scene, ToolType.POLYGON, "input-tablet-symbolic", _("Polygon (P)"), false);
 
             var sep = new Gtk.Separator(Gtk.Orientation.HORIZONTAL);
             sep.margin_top    = 4;
@@ -157,8 +142,12 @@ namespace Planly
             string tip,
             bool is_active)
         {
+            var image = new Gtk.Image.from_resource(
+                "/com/dprietob/planly/data/icons/symbolic/" + icon + ".svg"
+            );
+
             var btn = new Gtk.ToggleButton();
-            btn.icon_name     = icon;
+            btn.set_child(image);
             btn.tooltip_text  = tip;
             btn.add_css_class("flat");
             btn.width_request  = 40;
