@@ -2,9 +2,6 @@
 _build/
 build/
 
-# VS Code
-.vscode/
-
 # Editor backups
 *~
 *.orig

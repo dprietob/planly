@@ -1,4 +1,5 @@
-namespace Planly {
+namespace Planly
+{
     /** Modo de dibujo activo en el Scene. */
     public enum DrawMode {
         /** Líneas libres en cualquier ángulo. */
