@@ -16,9 +16,9 @@ namespace Planly
             add_separator(header);
             add_settings_dropdown(header);
             add_export_dropdown(header);
-            add_button(header, Actions.SAVE_DOC, "save", "Save plan", true);
-            add_button(header, Actions.OPEN_DOC, "open", "Open plan", false);
-            add_button(header, Actions.NEW_DOC, "new", "New plan", false);
+            add_button(header, Actions.SAVE_DOC, "save", "Save plan");
+            add_button(header, Actions.OPEN_DOC, "open", "Open plan");
+            add_button(header, Actions.NEW_DOC, "new", "New plan");
 
             append(header);
         }
@@ -54,7 +54,7 @@ namespace Planly
         /**
          * Añade un botón al HeaderBar.
          */
-        private void add_button(Adw.HeaderBar header, string action, string icon, string tip, bool primary)
+        private void add_button(Adw.HeaderBar header, string action, string icon, string tip)
         {
             var img = new Gtk.Image.from_resource("/com/dprietob/planly/icons/symbolic/" + icon + "-symbolic.svg");
             img.set_pixel_size(20);
@@ -64,10 +64,6 @@ namespace Planly
             btn.action_name = "win." + action;
             btn.set_child(img);
             btn.add_css_class("flat");
-
-            if (primary) {
-                btn.add_css_class("suggested-action");
-            }
 
             header.pack_end(btn);
         }

@@ -14,5 +14,7 @@
         <file>icons/symbolic/wall-symbolic.svg</file>
         <file>icons/symbolic/window-symbolic.svg</file>
         <file>icons/symbolic/furniture-symbolic.svg</file>
+        <file>icons/symbolic/zoom-in-symbolic.svg</file>
+        <file>icons/symbolic/zoom-out-symbolic.svg</file>
     </gresource>
 </gresources>

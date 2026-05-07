@@ -1,27 +1,7 @@
 namespace Planly
 {
-    /**
-     * Barra de estado inferior de Planly.
-     *
-     * Formato visual:
-     *   Scale: 1:200 | — | — | —    Units: metric  |  [-][100%][+]  ·  Not saved yet
-     *
-     * Las etiquetas de métricas y el botón de porcentaje de zoom tienen
-     * ancho fijo (width_chars) para evitar desplazamientos al actualizarse.
-     *
-     * Anchos reservados (caracteres):
-     *   PX_CHARS   = 16  →  cubre "1280 x 800 px"   (13 chars)
-     *   M_CHARS    = 18  →  cubre "6.400 x 4.000 m" (15 chars)
-     *   AREA_CHARS = 12  →  cubre "25.600 m²"       ( 9 chars)
-     *   ZOOM_CHARS =  5  →  cubre "800%"             ( 4 chars)
-     */
     public class StatusBar : Gtk.Box
     {
-        private const int PX_CHARS   = 16;
-        private const int M_CHARS    = 18;
-        private const int AREA_CHARS = 12;
-        private const int ZOOM_CHARS =  5;
-
         // Métricas
         private Gtk.Label lbl_size_px;
         private Gtk.Label lbl_size_m;
@@ -36,7 +16,7 @@ namespace Planly
 
         private GLib.DateTime? last_save_time = null;
 
-        // Senales para comunicar acciones de zoom al Scene (desde Window)
+        // Señales para comunicar acciones de zoom al Scene (desde Window)
         public signal void zoom_in_requested();
         public signal void zoom_out_requested();
         public signal void zoom_reset_requested();
@@ -44,40 +24,13 @@ namespace Planly
         // ──────────────────────────────────────────────────────────────────
         construct {
             orientation = Gtk.Orientation.HORIZONTAL;
-            spacing     = 0;
+            spacing = 5;
             add_css_class("toolbar");
 
-            // ── Bloque izquierdo: metricas con ancho fijo ──────────────────
-            var left = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 0);
-            left.hexpand = true;
-            left.valign  = Gtk.Align.CENTER;
-
-            var lbl_scale = new Gtk.Label("Scale: 1:%d".printf((int) MEASURE_IN_PIXELS));
-            add_left_item(left, lbl_scale, true);
-
-            lbl_size_px             = new Gtk.Label("\xe2\x80\x94");
-            lbl_size_px.width_chars = PX_CHARS;
-            lbl_size_px.xalign      = 0.0f;
-            add_left_item(left, lbl_size_px, false);
-
-            lbl_size_m             = new Gtk.Label("\xe2\x80\x94");
-            lbl_size_m.width_chars = M_CHARS;
-            lbl_size_m.xalign      = 0.0f;
-            add_left_item(left, lbl_size_m, false);
-
-            lbl_area             = new Gtk.Label("\xe2\x80\x94");
-            lbl_area.width_chars = AREA_CHARS;
-            lbl_area.xalign      = 0.0f;
-            add_left_item(left, lbl_area, false);
-
-            // ── Bloque derecho: unidades · zoom · autoguardado ─────────────
-            var lbl_units = new Gtk.Label(_("Units: metric"));
-            lbl_units.add_css_class("caption");
-            lbl_units.valign       = Gtk.Align.CENTER;
-            lbl_units.margin_start = 16;
-            lbl_units.margin_end   = 10;
-
-            var zoom_box = build_zoom_controls();
+            add_metrics();
+            add_units_grid();
+            add_zoom_controls();
+            //  add_saved();
 
             lbl_autosave = new Gtk.Label(_("Not saved yet"));
             lbl_autosave.add_css_class("caption");
@@ -86,17 +39,124 @@ namespace Planly
             lbl_autosave.margin_start = 10;
             lbl_autosave.margin_end = 10;
 
-            append(left);
-            append(lbl_units);
-            append(make_vsep());
-            append(zoom_box);
-            append(make_vsep());
+            append(build_vseparator());
+            //  append(zoom_box);
+            append(build_vseparator());
             append(lbl_autosave);
 
             GLib.Timeout.add_seconds(60, () => {
                 refresh_autosave();
                 return GLib.Source.CONTINUE;
             });
+        }
+
+        /**
+         * Añade el segmento de métricas del dibujo actual.
+         */
+        private void add_metrics()
+        {
+            var box = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 5){
+                hexpand = false,
+                valign = Gtk.Align.CENTER,
+                margin_start = 50,
+                width_request = 400
+            };
+
+            var lbl_scale = new Gtk.Label(_("Scale") + ": 1:%d".printf((int) MEASURE_IN_PIXELS));
+            lbl_scale.add_css_class("caption");
+
+            lbl_size_px = new Gtk.Label("\xe2\x80\x94");
+            lbl_size_px.add_css_class("caption");
+
+            lbl_size_m = new Gtk.Label("\xe2\x80\x94");
+            lbl_size_m.add_css_class("caption");
+
+            lbl_area = new Gtk.Label("\xe2\x80\x94");
+            lbl_area.add_css_class("caption");
+
+            box.append(lbl_scale);
+            box.append(build_hseparator());
+            box.append(lbl_size_px);
+            box.append(build_hseparator());
+            box.append(lbl_size_m);
+            box.append(build_hseparator());
+            box.append(lbl_area);
+
+            append(box);
+        }
+
+        /**
+         * Añade el segmento de unidades y grid.
+         */
+        private void add_units_grid()
+        {
+            var box = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 5){
+                hexpand = true,
+                valign = Gtk.Align.CENTER,
+                margin_start = 10
+            };
+
+            var lbl_units = new Gtk.Label(_("Units") + ": metric");
+            lbl_units.add_css_class("caption");
+
+            var lbl_grid = new Gtk.Label(_("Grid") + ": on");
+            lbl_grid.add_css_class("caption");
+
+            box.append(lbl_units);
+            box.append(build_hseparator());
+            box.append(lbl_grid);
+
+            append(box);
+        }
+
+        /**
+         * Añade el segmento de control de zoom.
+         */
+        private void add_zoom_controls()
+        {
+            var box = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 5){
+                hexpand = true,
+                valign = Gtk.Align.CENTER,
+                margin_start = 10
+            };
+
+            var img_zoom_out = new Gtk.Image.from_resource("/com/dprietob/planly/icons/symbolic/zoom-out-symbolic.svg");
+            img_zoom_out.set_pixel_size(16);
+
+            // Boton zoom out (-)
+            var btn_out = new Gtk.Button.with_label("-");  // signo menos tipografico
+            btn_out.add_css_class("caption");
+            btn_out.tooltip_text = _("Zoom out");
+            btn_out.set_child(img_zoom_out);
+            //  btn_out.action_name = "win." + Actions.ZOOM_OUT;
+            btn_out.clicked.connect(() => zoom_out_requested());
+
+            // Boton porcentaje / reset: usa un Gtk.Label hijo para fijar el ancho
+            lbl_zoom = new Gtk.Label("100%");
+            lbl_zoom.add_css_class("caption");
+
+            btn_zoom_level = new Gtk.Button();
+            btn_zoom_level.child = lbl_zoom;
+            btn_zoom_level.tooltip_text = _("Reset zoom");
+            //  btn_zoom_level.action_name = "win." + Actions.ZOOM_RESET;
+            btn_zoom_level.clicked.connect(() => zoom_reset_requested());
+
+            var img_zoom_in = new Gtk.Image.from_resource("/com/dprietob/planly/icons/symbolic/zoom-in-symbolic.svg");
+            img_zoom_in.set_pixel_size(16);
+
+            // Boton zoom in (+)
+            var btn_in = new Gtk.Button.with_label("+");
+            btn_in.add_css_class("caption");
+            btn_in.tooltip_text = _("Zoom in");
+            btn_in.set_child(img_zoom_in);
+            btn_in.action_name = "win." + Actions.ZOOM_IN;
+            //  btn_in.clicked.connect(() => zoom_in_requested());
+
+            box.append(btn_out);
+            box.append(btn_zoom_level);
+            box.append(btn_in);
+
+            append(box);
         }
 
         // ── API publica ────────────────────────────────────────────────────
@@ -120,50 +180,6 @@ namespace Planly
             refresh_autosave();
         }
 
-        // ── Internos ──────────────────────────────────────────────────────
-
-        private Gtk.Box build_zoom_controls()
-        {
-            var box = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 0);
-            box.valign = Gtk.Align.CENTER;
-
-            // Boton zoom out (-)
-            var btn_out = new Gtk.Button.with_label("\xe2\x88\x92");  // signo menos tipografico
-            btn_out.add_css_class("flat");
-            btn_out.add_css_class("caption");
-            btn_out.tooltip_text   = _("Zoom out (Ctrl+-)");
-            btn_out.width_request  = 28;
-            btn_out.height_request = 24;
-            btn_out.clicked.connect(() => zoom_out_requested());
-
-            // Boton porcentaje / reset: usa un Gtk.Label hijo para fijar el ancho
-            lbl_zoom             = new Gtk.Label("100%");
-            lbl_zoom.add_css_class("caption");
-            lbl_zoom.width_chars = ZOOM_CHARS;
-            lbl_zoom.xalign      = 0.5f;
-
-            btn_zoom_level = new Gtk.Button();
-            btn_zoom_level.child          = lbl_zoom;
-            btn_zoom_level.add_css_class("flat");
-            btn_zoom_level.tooltip_text   = _("Reset zoom (Ctrl+0)");
-            btn_zoom_level.height_request = 24;
-            btn_zoom_level.clicked.connect(() => zoom_reset_requested());
-
-            // Boton zoom in (+)
-            var btn_in = new Gtk.Button.with_label("+");
-            btn_in.add_css_class("flat");
-            btn_in.add_css_class("caption");
-            btn_in.tooltip_text   = _("Zoom in (Ctrl+=)");
-            btn_in.width_request  = 28;
-            btn_in.height_request = 24;
-            btn_in.clicked.connect(() => zoom_in_requested());
-
-            box.append(btn_out);
-            box.append(btn_zoom_level);
-            box.append(btn_in);
-            return box;
-        }
-
         private void refresh_autosave()
         {
             if (last_save_time == null) {
@@ -184,24 +200,20 @@ namespace Planly
             }
         }
 
-        private void add_left_item(Gtk.Box box, Gtk.Label lbl, bool is_first)
+        private Gtk.Separator build_hseparator()
         {
-            if (!is_first) {
-                box.append(make_vsep());
-            }
-            lbl.add_css_class("caption");
-            lbl.valign       = Gtk.Align.CENTER;
-            lbl.margin_start = 10;
-            lbl.margin_end   = 10;
-            box.append(lbl);
+            return new Gtk.Separator(Gtk.Orientation.VERTICAL) {
+                       margin_start = 6,
+                       margin_end = 6,
+            };
         }
 
-        private Gtk.Separator make_vsep()
+        private Gtk.Separator build_vseparator()
         {
-            var sep = new Gtk.Separator(Gtk.Orientation.VERTICAL);
-            sep.margin_top    = 6;
-            sep.margin_bottom = 6;
-            return sep;
+            return new Gtk.Separator(Gtk.Orientation.VERTICAL) {
+                       margin_top = 6,
+                       margin_bottom = 6,
+            };
         }
     }
 }
