@@ -1,8 +1,5 @@
 namespace Planly
 {
-    /**
-     * Ventana principal de Planly.
-     */
     public class Window : Adw.ApplicationWindow
     {
         public Window (Gtk.Application app)
@@ -11,23 +8,10 @@ namespace Planly
         }
 
         construct {
-            var scene      = new Scene();
+            var header_bar = new HeaderBar();
+            var tool_bar = new ToolBar();
             var status_bar = new StatusBar();
-
-            // Scene -> StatusBar
-            scene.metrics_updated.connect(status_bar.update_metrics);
-            scene.zoom_changed.connect(status_bar.update_zoom);
-
-            // StatusBar -> Scene (zoom)
-            status_bar.zoom_in_requested.connect(scene.zoom_in);
-            status_bar.zoom_out_requested.connect(scene.zoom_out);
-            status_bar.zoom_reset_requested.connect(scene.zoom_reset);
-
-            // Header bar
-            var header_bar = build_header_bar();
-
-            // Paleta de herramientas
-            var tool_panel = build_tool_panel(scene);
+            var scene = new Scene();
 
             // Canvas dentro de un ScrolledWindow para soportar pan al hacer zoom
             var scrolled = new Gtk.ScrolledWindow();
@@ -37,168 +21,116 @@ namespace Planly
 
             // Area de trabajo: paleta + canvas
             var hbox = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 0);
-            hbox.append(tool_panel);
+            hbox.append(tool_bar);
             hbox.append(scrolled);
 
             // Layout principal (Adw.ToolbarView gestiona header y footer)
-            var toolbar_view = new Adw.ToolbarView();
-            toolbar_view.add_top_bar(header_bar);
-            toolbar_view.add_bottom_bar(status_bar);
-            toolbar_view.content = hbox;
+            var layout = new Adw.ToolbarView();
+            layout.add_top_bar(header_bar);
+            layout.add_bottom_bar(status_bar);
+            layout.content = hbox;
 
-            // Acciones
-            setup_theme_action();
             setup_document_actions();
+            setup_settings_actions();
+            setup_tools_action(scene);
+            setup_zoom_action(scene, status_bar);
+            setup_theme_action();
 
-            set_title(APP_NAME + " " + Config.VERSION);
             set_default_size(WINDOW_WIDTH, WINDOW_HEIGHT);
-            set_content(toolbar_view);
+            set_content(layout);
         }
-
-        // Header bar
-
-        private Adw.HeaderBar build_header_bar()
-        {
-            var header_bar = new Adw.HeaderBar();
-
-            // Inicio: icono Nuevo + icono Abrir
-            var btn_new = new Gtk.Button();
-            btn_new.icon_name    = "document-new-symbolic";
-            btn_new.tooltip_text = _("New plan");
-            btn_new.action_name  = "win.new-plan";
-            header_bar.pack_start(btn_new);
-
-            var btn_open = new Gtk.Button();
-            btn_open.icon_name    = "document-open-symbolic";
-            btn_open.tooltip_text = _("Open plan");
-            btn_open.action_name  = "win.open-plan";
-            header_bar.pack_start(btn_open);
-
-            // Fin: menu (mas a la derecha), luego Export, luego Save
-            // pack_end apila de derecha a izquierda: el primero queda mas a la derecha
-            var theme_menu = new GLib.Menu();
-            theme_menu.append(_("Dark"), "win.theme::dark");
-            theme_menu.append(_("Light"), "win.theme::light");
-            theme_menu.append(_("System"), "win.theme::system");
-
-            var appearance_menu = new GLib.Menu();
-            appearance_menu.append_submenu(_("Appearance"), theme_menu);
-
-            var menu_button = new Gtk.MenuButton();
-            menu_button.icon_name    = "open-menu-symbolic";
-            menu_button.menu_model   = appearance_menu;
-            menu_button.tooltip_text = _("Main menu");
-            header_bar.pack_end(menu_button);
-
-            var btn_export = new Gtk.Button.with_label(_("Export"));
-            btn_export.action_name = "win.export";
-            header_bar.pack_end(btn_export);
-
-            var btn_save = new Gtk.Button.with_label(_("Save"));
-            btn_save.action_name = "win.save";
-            btn_save.add_css_class("suggested-action");
-            header_bar.pack_end(btn_save);
-
-            return header_bar;
-        }
-
-        // Paleta de herramientas
 
         /**
-         * Construye la barra lateral izquierda con los botones de herramienta.
-         * Los botones actuan como un grupo radio: solo uno puede estar activo.
-         */
-        private Gtk.Box build_tool_panel(Scene scene)
-        {
-            var panel = new Gtk.Box(Gtk.Orientation.VERTICAL, 4);
-            panel.add_css_class("tool-panel");
-            panel.margin_top    = 8;
-            panel.margin_bottom = 8;
-            panel.margin_start  = 6;
-            panel.margin_end    = 6;
-
-            Gtk.ToggleButton? first = null;
-
-            first = add_tool_button(panel, first, scene, ToolType.SELECT, "bulb", _("Select (S)"), false);
-            add_tool_button(panel, first, scene, ToolType.LINE, "function-linear-symbolic", _("Line (L)"), true);
-            add_tool_button(panel, first, scene, ToolType.RECT, "checkbox-symbolic", _("Rectangle (R)"), false);
-            add_tool_button(panel, first, scene, ToolType.CIRCLE, "radio-symbolic", _("Circle (C)"), false);
-            add_tool_button(panel, first, scene, ToolType.POLYGON, "input-tablet-symbolic", _("Polygon (P)"), false);
-
-            var sep = new Gtk.Separator(Gtk.Orientation.HORIZONTAL);
-            sep.margin_top    = 4;
-            sep.margin_bottom = 4;
-            panel.append(sep);
-
-            return panel;
-        }
-
-        private Gtk.ToggleButton add_tool_button(
-            Gtk.Box panel,
-            Gtk.ToggleButton?  group_leader,
-            Scene scene,
-            ToolType tool,
-            string icon,
-            string tip,
-            bool is_active)
-        {
-            var image = new Gtk.Image.from_resource(
-                "/com/dprietob/planly/data/icons/symbolic/" + icon + ".svg"
-            );
-
-            var btn = new Gtk.ToggleButton();
-            btn.set_child(image);
-            btn.tooltip_text  = tip;
-            btn.add_css_class("flat");
-            btn.width_request  = 40;
-            btn.height_request = 40;
-
-            if (is_active) {
-                btn.active = true;
-            }
-
-            if (group_leader != null) {
-                btn.group = group_leader;
-            }
-
-            btn.toggled.connect(() => {
-                if (btn.active) {
-                    scene.set_tool(tool);
-                }
-            });
-
-            panel.append(btn);
-            return btn;
-        }
-
-        // Acciones de documento
-
-        /**
-         * Registra las acciones win.new-plan, win.open-plan, win.save, win.export.
-         * La logica real se implementara cuando se añada la capa de persistencia
-         * (Project). Por ahora las acciones existen para que los botones funcionen.
+         * Registra las acciones de control de documentos de planos.
          */
         private void setup_document_actions()
         {
-            var act_new = new GLib.SimpleAction("new-plan", null);
-            act_new.activate.connect(() => { /* TODO: nuevo plano */ });
-            add_action(act_new);
+            var action_new = new GLib.SimpleAction(Actions.NEW_DOC, null);
+            action_new.activate.connect(() => { /* TODO: nuevo plano */ });
+            add_action(action_new);
 
-            var act_open = new GLib.SimpleAction("open-plan", null);
-            act_open.activate.connect(() => { /* TODO: abrir plano */ });
-            add_action(act_open);
+            var action_open = new GLib.SimpleAction(Actions.OPEN_DOC, null);
+            action_open.activate.connect(() => { /* TODO: abrir plano */ });
+            add_action(action_open);
 
-            var act_save = new GLib.SimpleAction("save", null);
-            act_save.activate.connect(() => { /* TODO: guardar */ });
-            add_action(act_save);
+            var action_save = new GLib.SimpleAction(Actions.SAVE_DOC, null);
+            action_save.activate.connect(() => { /* TODO: guardar */ });
+            add_action(action_save);
 
-            var act_export = new GLib.SimpleAction("export", null);
-            act_export.activate.connect(() => { /* TODO: exportar */ });
-            add_action(act_export);
+            var action_export = new GLib.SimpleAction(Actions.EXPORT_DOC, null);
+            action_export.activate.connect(() => { /* TODO: exportar */ });
+            add_action(action_export);
+
+            var action_render = new GLib.SimpleAction(Actions.RENDER_DOC, null);
+            action_render.activate.connect(() => { /* TODO: renderizar */ });
+            add_action(action_render);
         }
 
-        // Accion de tema
+        /**
+         * Registra las acciones de preferencias.
+         */
+        private void setup_settings_actions()
+        {
+            var action_settings = new GLib.SimpleAction(Actions.SETTINGS, null);
+            action_settings.activate.connect(() => { /* TODO: configuración */ });
+            add_action(action_settings);
 
+            var action_shortcuts = new GLib.SimpleAction(Actions.SHORTCUTS, null);
+            action_shortcuts.activate.connect(() => { /* TODO: atajos de teclado */ });
+            add_action(action_shortcuts);
+
+            var action_about = new GLib.SimpleAction(Actions.ABOUT, null);
+            action_about.activate.connect(() => { /* TODO: acerca de */ });
+            add_action(action_about);
+        }
+
+        /**
+         * Registra las acciones de cambio de herramienta para que estén
+         * disponibles en la escena.
+         */
+        private void setup_tools_action(Scene scene)
+        {
+            var map = new GLib.HashTable<string, ToolType>(str_hash, str_equal);
+
+            map.insert(Actions.TOOL_SELECT, ToolType.SELECT);
+            map.insert(Actions.TOOL_WALL, ToolType.WALL);
+            map.insert(Actions.TOOL_COLUMN, ToolType.COLUMN);
+            map.insert(Actions.TOOL_BULB, ToolType.BULB);
+            map.insert(Actions.TOOL_OUTLET, ToolType.OUTLET);
+            map.insert(Actions.TOOL_FAUCET, ToolType.FAUCET);
+            map.insert(Actions.TOOL_DOOR, ToolType.DOOR);
+            map.insert(Actions.TOOL_WINDOW, ToolType.WINDOW);
+            map.insert(Actions.TOOL_FURNITURE, ToolType.FURNITURE);
+
+            map.for_each((action_name, tool) => {
+                var action = new GLib.SimpleAction.stateful(action_name, null, new GLib.Variant.boolean(false));
+                action.activate.connect(() => {
+                    bool current = action.get_state().get_boolean();
+                    action.set_state(new GLib.Variant.boolean(!current));
+                    scene.set_tool(tool);
+                });
+                add_action(action);
+            });
+        }
+
+        /**
+         * Registra las acciones de zoom sincronizándolas con la escena.
+         */
+        private void setup_zoom_action(Scene scene, StatusBar status_bar)
+        {
+            // Scene -> StatusBar
+            scene.metrics_updated.connect(status_bar.update_metrics);
+            scene.zoom_changed.connect(status_bar.update_zoom);
+
+            // StatusBar -> Scene (zoom)
+            status_bar.zoom_in_requested.connect(scene.zoom_in);
+            status_bar.zoom_out_requested.connect(scene.zoom_out);
+            status_bar.zoom_reset_requested.connect(scene.zoom_reset);
+        }
+
+        /**
+         * Registra las acciones de cambio de tema.
+         */
         private void setup_theme_action()
         {
             var action = new GLib.SimpleAction.stateful(
@@ -214,6 +146,9 @@ namespace Planly
             add_action(action);
         }
 
+        /**
+         * Aplica un cambio de tema.
+         */
         private void apply_theme(string theme)
         {
             var sm = Adw.StyleManager.get_default();

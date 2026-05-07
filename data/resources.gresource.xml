@@ -1,0 +1,18 @@
+<gresources>
+    <gresource prefix="/com/dprietob/planly">
+        <file>icons/symbolic/new-symbolic.svg</file>
+        <file>icons/symbolic/open-symbolic.svg</file>
+        <file>icons/symbolic/save-symbolic.svg</file>
+        <file>icons/symbolic/export-symbolic.svg</file>
+        <file>icons/symbolic/settings-symbolic.svg</file>
+        <file>icons/symbolic/cursor-symbolic.svg</file>
+        <file>icons/symbolic/bulb-symbolic.svg</file>
+        <file>icons/symbolic/column-symbolic.svg</file>
+        <file>icons/symbolic/door-symbolic.svg</file>
+        <file>icons/symbolic/faucet-symbolic.svg</file>
+        <file>icons/symbolic/outlet-symbolic.svg</file>
+        <file>icons/symbolic/wall-symbolic.svg</file>
+        <file>icons/symbolic/window-symbolic.svg</file>
+        <file>icons/symbolic/furniture-symbolic.svg</file>
+    </gresource>
+</gresources>

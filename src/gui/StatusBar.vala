@@ -29,7 +29,7 @@ namespace Planly
 
         // Zoom
         private Gtk.Button btn_zoom_level;
-        private Gtk.Label  lbl_zoom;
+        private Gtk.Label lbl_zoom;
 
         // Autoguardado
         private Gtk.Label lbl_autosave;
@@ -171,8 +171,8 @@ namespace Planly
                 return;
             }
 
-            var    now     = new GLib.DateTime.now_local();
-            int    minutes = (int) (now.difference(last_save_time) / GLib.TimeSpan.MINUTE);
+            var now     = new GLib.DateTime.now_local();
+            int minutes = (int) (now.difference(last_save_time) / GLib.TimeSpan.MINUTE);
             string dt      = last_save_time.format("%d/%m/%Y %H:%M");
 
             if (minutes < 1) {

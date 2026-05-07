@@ -16,31 +16,31 @@ Work in progress.
 
 ## Dependencias
 
-| Dependencia       | Versión mínima | Notas                          |
-|-------------------|---------------|--------------------------------|
-| Vala              | 0.56          |                                |
-| GTK4              | 4.10          |                                |
-| libadwaita        | 1.4           | `libadwaita-1`                 |
-| Meson             | 0.62          | Sistema de build               |
-| Ninja             | —             | Backend de Meson               |
-| gettext           | —             | Herramientas de i18n           |
+| Dependencia | Versión mínima | Notas                |
+| ----------- | -------------- | -------------------- |
+| Vala        | 0.56           |                      |
+| GTK4        | 4.10           |                      |
+| libadwaita  | 1.4            | `libadwaita-1`       |
+| Meson       | 0.62           | Sistema de build     |
+| Ninja       | —              | Backend de Meson     |
+| gettext     | —              | Herramientas de i18n |
 
 En Fedora / RHEL:
 
 ```shell
-sudo dnf install vala gtk4-devel libadwaita-devel meson ninja-build gettext-devel
+sudo dnf install vala vala-devel vala-language-server gtk4-devel libadwaita-devel meson ninja-build gettext-devel
 ```
 
 En Debian / Ubuntu:
 
 ```shell
-sudo apt install valac libgtk-4-dev libadwaita-1-dev meson ninja-build gettext
+sudo apt install valac libvala-dev vala-language-server libgtk-4-dev libadwaita-1-dev meson ninja-build gettext
 ```
 
 En Arch Linux:
 
 ```shell
-sudo pacman -S vala gtk4 libadwaita meson ninja gettext
+sudo pacman -S vala vala-language-server gtk4 libadwaita meson ninja gettext base-devel
 ```
 
 ## Compilación y ejecución

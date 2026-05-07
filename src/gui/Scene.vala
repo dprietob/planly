@@ -30,7 +30,7 @@ namespace Planly
         private Shape[]  shapes      = {};
         private Shape?   active      = null;
         private bool has_dragged = false;
-        private ToolType active_tool = ToolType.LINE;
+        private ToolType active_tool = ToolType.SELECT;
 
         // Cache Cairo
         private Cairo.ImageSurface cache_surface;
@@ -39,9 +39,10 @@ namespace Planly
         // Controlador de scroll (guardado para poder leer el estado de modificadores)
         private Gtk.EventControllerScroll scroll_ctrl;
 
-        // Senales
+        // Señales
         public signal void metrics_updated(string size_px, string size_m, string area_m2);
         public signal void zoom_changed(double level);
+        public signal void tool_changed(ToolType tool);
 
         // ──────────────────────────────────────────────────────────────────
         construct {
@@ -248,10 +249,15 @@ namespace Planly
         private Shape? create_shape()
         {
             switch (active_tool) {
-            case ToolType.LINE:   return new Line();
-            case ToolType.RECT:   return new Rect();
-            case ToolType.CIRCLE: return new Circle();
-            default:              return null;
+            case ToolType.WALL: return new Line();
+            case ToolType.COLUMN: return new Rect();
+            case ToolType.BULB: return new Circle();
+            case ToolType.OUTLET: return new Circle();
+            case ToolType.DOOR: return new Circle();
+            case ToolType.WINDOW: return new Circle();
+            case ToolType.FAUCET: return new Circle();
+            case ToolType.FURNITURE: return new Circle();
+            default: return null;
             }
         }
 

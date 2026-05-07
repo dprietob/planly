@@ -20,7 +20,6 @@ namespace Planly
 
     public class Application : Adw.Application
     {
-
         public Application ()
         {
             Object(
@@ -31,8 +30,10 @@ namespace Planly
 
         protected override void activate()
         {
-            // Tema oscuro por defecto al arrancar
-            Adw.StyleManager.get_default().color_scheme = Adw.ColorScheme.FORCE_DARK;
+            // Tema del sistema por defecto al arrancar y asignación de shortcuts
+            //  Adw.StyleManager.get_default().color_scheme = Adw.ColorScheme.DEFAULT;
+            Adw.StyleManager.get_default().color_scheme = Adw.ColorScheme.FORCE_LIGHT; // DEBUG:
+            AccelsManager.setup(this);
 
             var window = new Window(this);
             window.present();
