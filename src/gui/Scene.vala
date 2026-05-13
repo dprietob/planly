@@ -61,32 +61,42 @@ namespace Planly
          */
         private int sel_mode = 0;
 
-        // Interacción activa: 0=ninguna 1=mover 2=resize 3=rotar 4=vértice
+        // Interacción activa:
+        //   0=ninguna  1=mover  2=resize  3=rotar  4=vértice  5=handle Bézier
         private int    sel_interact  = 0;
         private double sel_press_x   = 0.0;
         private double sel_press_y   = 0.0;
 
         // Resize
-        private int      resize_corner   = -1;
-        private double   resize_anchor_x = 0.0;
-        private double   resize_anchor_y = 0.0;
-        private double   resize_orig_w   = 0.0;
-        private double   resize_orig_h   = 0.0;
-        private double[] resize_snap_vx  = {};
-        private double[] resize_snap_vy  = {};
+        private int    resize_corner   = -1;
+        private double resize_anchor_x = 0.0;
+        private double resize_anchor_y = 0.0;
+        private double resize_orig_w   = 0.0;
+        private double resize_orig_h   = 0.0;
 
         // Rotación
-        private double   rot_cx         = 0.0;
-        private double   rot_cy         = 0.0;
-        private double   rot_orig_angle = 0.0;
-        private double[] rot_snap_vx    = {};
-        private double[] rot_snap_vy    = {};
+        private double rot_cx         = 0.0;
+        private double rot_cy         = 0.0;
+        private double rot_orig_angle = 0.0;
+
+        // Snapshot unificado (vértices + datos Bézier) para resize/rotate
+        private double[] trans_snap_vx  = {};
+        private double[] trans_snap_vy  = {};
+        private bool[]   trans_snap_bez = {};
+        private double[] trans_snap_cox = {};
+        private double[] trans_snap_coy = {};
+        private double[] trans_snap_cix = {};
+        private double[] trans_snap_ciy = {};
 
         // Vértice arrastrado (durante drag)
         private int vert_drag_idx = -1;
 
         // Vértice seleccionado para control por teclado (-1 = ninguno)
         private int sel_vertex_idx = -1;
+
+        // Bézier: handle arrastrado
+        private int  bezier_vert_idx = -1;
+        private bool bezier_is_out   = false;
 
         // Shift para snapping
         private bool shift_pressed = false;
@@ -212,9 +222,19 @@ namespace Planly
         {
             // ── Doble clic ────────────────────────────────────────────────
             if (n_press == 2) {
-                // Modo vértices: doble clic en segmento → insertar vértice nuevo
+                // Modo vértices + doble clic
                 if (sel_mode == 2 && sel_shape is Wall) {
                     var wall = (Wall) sel_shape;
+                    int vi = wall.find_vertex (cx, cy);
+                    if (vi >= 0) {
+                        // Doble clic en vértice → activar/desactivar handles Bézier
+                        sel_interact = 0;
+                        wall.toggle_bezier (vi);
+                        rebuild_cache ();
+                        queue_draw ();
+                        return;
+                    }
+                    // Doble clic en segmento → insertar vértice nuevo
                     if (!wall.has_handle_at (cx, cy)) {
                         double proj_x, proj_y;
                         int seg = wall.find_segment_at (cx, cy, 10.0, out proj_x, out proj_y);
@@ -254,15 +274,28 @@ namespace Planly
             if (sel_mode == 2 && sel_shape != null) {
                 if (sel_shape is Wall) {
                     var wall_v = (Wall) sel_shape;
-                    int vi     = wall_v.find_vertex (cx, cy);
+
+                    // 1. Comprobar handle Bézier (prioridad sobre vértice)
+                    bool biz_out;
+                    int biz = wall_v.find_bezier_handle (cx, cy, out biz_out);
+                    if (biz >= 0) {
+                        bezier_vert_idx = biz;
+                        bezier_is_out   = biz_out;
+                        sel_interact    = 5;
+                        sel_press_x     = cx;
+                        sel_press_y     = cy;
+                        return;
+                    }
+
+                    // 2. Comprobar vértice
+                    int vi = wall_v.find_vertex (cx, cy);
                     if (vi >= 0) {
-                        // Seleccionar vértice visualmente + preparar arrastre
-                        sel_vertex_idx              = vi;
-                        wall_v.selected_vertex      = vi;
-                        vert_drag_idx               = vi;
-                        sel_interact                = 4;
-                        sel_press_x                 = cx;
-                        sel_press_y                 = cy;
+                        sel_vertex_idx         = vi;
+                        wall_v.selected_vertex = vi;
+                        vert_drag_idx          = vi;
+                        sel_interact           = 4;
+                        sel_press_x            = cx;
+                        sel_press_y            = cy;
                         rebuild_cache ();
                         queue_draw ();
                         return;
@@ -290,7 +323,7 @@ namespace Planly
                     rot_cx         = b.x + b.w / 2.0;
                     rot_cy         = b.y + b.h / 2.0;
                     rot_orig_angle = Math.atan2 (cy - rot_cy, cx - rot_cx);
-                    take_snapshot_for_rot ();
+                    take_transform_snapshot ();
                     return;
                 }
 
@@ -326,9 +359,10 @@ namespace Planly
             double cy = to_canvas (y);
 
             if (active_tool == ToolType.SELECT) {
-                sel_interact  = 0;
-                resize_corner = -1;
-                vert_drag_idx = -1;
+                sel_interact    = 0;
+                resize_corner   = -1;
+                vert_drag_idx   = -1;
+                bezier_vert_idx = -1;
                 rebuild_cache ();
                 queue_draw ();
                 if (sel_shape != null) {
@@ -383,6 +417,7 @@ namespace Planly
                 case 2: do_resize (cx, cy); return;
                 case 3: do_rotate (cx, cy); return;
                 case 4: do_vertex (cx, cy); return;
+                case 5: do_bezier (cx, cy); return;
                 }
                 return;
             }
@@ -460,7 +495,9 @@ namespace Planly
         {
             if (!(sel_shape is Wall)) return;
             var wall = (Wall) sel_shape;
-            wall.restore_snapshot (resize_snap_vx, resize_snap_vy);
+            wall.restore_full_snapshot (trans_snap_vx, trans_snap_vy, trans_snap_bez,
+                                        trans_snap_cox, trans_snap_coy,
+                                        trans_snap_cix, trans_snap_ciy);
             double sx = resize_orig_w > 1.0
                 ? double.max (Math.fabs (cx - resize_anchor_x) / resize_orig_w, 0.01) : 1.0;
             double sy = resize_orig_h > 1.0
@@ -475,12 +512,22 @@ namespace Planly
         {
             if (!(sel_shape is Wall)) return;
             var wall = (Wall) sel_shape;
-            wall.restore_snapshot (rot_snap_vx, rot_snap_vy);
+            wall.restore_full_snapshot (trans_snap_vx, trans_snap_vy, trans_snap_bez,
+                                        trans_snap_cox, trans_snap_coy,
+                                        trans_snap_cix, trans_snap_ciy);
             double delta = Math.atan2 (cy - rot_cy, cx - rot_cx) - rot_orig_angle;
             wall.rotate_vertices (delta, rot_cx, rot_cy);
             rebuild_cache ();
             queue_draw ();
             metrics_updated (wall.get_size_px (), wall.get_size_m (), wall.get_area_m2 ());
+        }
+
+        private void do_bezier (double cx, double cy)
+        {
+            if (!(sel_shape is Wall)) return;
+            ((Wall) sel_shape).move_bezier_cp (bezier_vert_idx, bezier_is_out, cx, cy);
+            rebuild_cache ();
+            queue_draw ();
         }
 
         private void do_vertex (double cx, double cy)
@@ -609,20 +656,16 @@ namespace Planly
             case 2: resize_anchor_x = b.x;        resize_anchor_y = b.y;        break;
             default: resize_anchor_x = b.x + b.w; resize_anchor_y = b.y;       break;
             }
-            take_snapshot_for_resize ();
+            take_transform_snapshot ();
         }
 
-        private void take_snapshot_for_resize ()
+        private void take_transform_snapshot ()
         {
             if (sel_shape is Wall) {
-                ((Wall) sel_shape).get_vertex_snapshot (out resize_snap_vx, out resize_snap_vy);
-            }
-        }
-
-        private void take_snapshot_for_rot ()
-        {
-            if (sel_shape is Wall) {
-                ((Wall) sel_shape).get_vertex_snapshot (out rot_snap_vx, out rot_snap_vy);
+                ((Wall) sel_shape).get_full_snapshot (
+                    out trans_snap_vx, out trans_snap_vy, out trans_snap_bez,
+                    out trans_snap_cox, out trans_snap_coy,
+                    out trans_snap_cix, out trans_snap_ciy);
             }
         }
 
