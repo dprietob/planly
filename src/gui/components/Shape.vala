@@ -143,15 +143,20 @@ namespace Planly
         }
 
         /**
-         * Pinta un texto centrado en (cx, cy) con fondo blanco semitransparente
-         * para garantizar legibilidad sobre cualquier relleno.
-         * Si vertical = true, el texto se rota -90° (lectura de abajo hacia arriba).
+         * Pinta un texto centrado en (cx, cy) rotado angle radianes.
+         * angle = 0  → horizontal   |  angle = -π/2 → vertical ascendente
+         * El ángulo se normaliza para que el texto nunca quede boca abajo.
          */
         protected void paint_label(Cairo.Context cr, string text,
-            double cx, double cy, bool vertical = false)
+            double cx, double cy, double angle = 0.0)
         {
             double font_size = 11.0;
             double pad       = 2.5;
+
+            // Normalizar: mantener el ángulo en (-π/2, π/2] para legibilidad
+            double a = angle;
+            while (a >  Math.PI / 2.0) a -= Math.PI;
+            while (a < -Math.PI / 2.0) a += Math.PI;
 
             cr.save();
             cr.select_font_face("Sans", Cairo.FontSlant.NORMAL, Cairo.FontWeight.NORMAL);
@@ -161,7 +166,7 @@ namespace Planly
             cr.text_extents(text, out te);
 
             cr.translate(cx, cy);
-            if (vertical) cr.rotate(-Math.PI / 2.0);
+            cr.rotate(a);
 
             double tx = -te.x_bearing - te.width  / 2.0;
             double ty = -te.y_bearing - te.height / 2.0;

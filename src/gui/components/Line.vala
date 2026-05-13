@@ -158,7 +158,8 @@ namespace Planly
                 double perp  = angle - Math.PI / 2.0;
                 double lx    = mx + Math.cos(perp) * 14.0;
                 double ly    = my + Math.sin(perp) * 14.0;
-                paint_label(cr, format_m(_length_metters), lx, ly, false);
+                paint_label(cr, format_m(_length_metters), lx, ly,
+                            Math.atan2(end_y - start_y, end_x - start_x));
             }
         }
 

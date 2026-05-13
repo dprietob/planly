@@ -777,20 +777,24 @@ namespace Planly
                 double x1=_vx[i],y1=_vy[i],x2=_vx[to],y2=_vy[to];
                 double dx=x2-x1, dy=y2-y1;
                 if (Math.sqrt(dx*dx+dy*dy)<30.0) continue;
-                double arc=seg_arc_length(i,to);
-                double mx=(x1+x2)/2.0, my=(y1+y2)/2.0;
-                double perp=Math.atan2(dy,dx)-Math.PI/2.0;
-                paint_label(cr,format_m(Utils.convert_to_metters(arc)),
-                            mx+Math.cos(perp)*14.0,my+Math.sin(perp)*14.0);
+                double arc   = seg_arc_length(i,to);
+                double mx    = (x1+x2)/2.0, my=(y1+y2)/2.0;
+                double angle = Math.atan2(dy,dx);
+                double perp  = angle - Math.PI/2.0;
+                paint_label(cr, format_m(Utils.convert_to_metters(arc)),
+                            mx+Math.cos(perp)*14.0, my+Math.sin(perp)*14.0,
+                            angle);
             }
             if (is_drawing && n>=1) {
-                double dx=_cx-_vx[n-1], dy=_cy-_vy[n-1];
-                double len=Math.sqrt(dx*dx+dy*dy);
+                double dx    = _cx-_vx[n-1], dy=_cy-_vy[n-1];
+                double len   = Math.sqrt(dx*dx+dy*dy);
                 if (len>=30.0) {
-                    double mx=(_vx[n-1]+_cx)/2.0, my=(_vy[n-1]+_cy)/2.0;
-                    double perp=Math.atan2(dy,dx)-Math.PI/2.0;
-                    paint_label(cr,format_m(Utils.convert_to_metters(len)),
-                                mx+Math.cos(perp)*14.0,my+Math.sin(perp)*14.0);
+                    double mx    = (_vx[n-1]+_cx)/2.0, my=(_vy[n-1]+_cy)/2.0;
+                    double angle = Math.atan2(dy,dx);
+                    double perp  = angle - Math.PI/2.0;
+                    paint_label(cr, format_m(Utils.convert_to_metters(len)),
+                                mx+Math.cos(perp)*14.0, my+Math.sin(perp)*14.0,
+                                angle);
                 }
             }
         }

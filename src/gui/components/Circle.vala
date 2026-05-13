@@ -96,7 +96,7 @@ namespace Planly
             if (radius >= 20.0) {
                 double d_m = Utils.convert_to_metters(_diameter_px);
                 paint_label(cr, "\xe2\x8c\x80 " + format_m(d_m),
-                    center_x, center_y - radius, false);
+                    center_x, center_y - radius, 0.0);
             }
 
             // Etiqueta de area en el centro
@@ -104,7 +104,7 @@ namespace Planly
                 double r_m  = Utils.convert_to_metters(_radius_px);
                 double area = Math.PI * r_m * r_m;
                 paint_label(cr, "%.2f m\xc2\xb2".printf(area),
-                    center_x, center_y, false);
+                    center_x, center_y, 0.0);
             }
         }
 

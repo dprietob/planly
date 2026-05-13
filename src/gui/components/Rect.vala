@@ -144,13 +144,13 @@ namespace Planly
             // Etiquetas de dimension en cada lado (solo si el lado es suficientemente grande)
             if (w >= 40.0) {
                 string lbl_w = format_m(Utils.convert_to_metters(_width_px));
-                paint_label(cr, lbl_w, l + w / 2.0, t, false);
-                paint_label(cr, lbl_w, l + w / 2.0, b, false);
+                paint_label(cr, lbl_w, l + w / 2.0, t, 0.0);
+                paint_label(cr, lbl_w, l + w / 2.0, b, 0.0);
             }
             if (h >= 40.0) {
                 string lbl_h = format_m(Utils.convert_to_metters(_height_px));
-                paint_label(cr, lbl_h, l, t + h / 2.0, true);
-                paint_label(cr, lbl_h, r, t + h / 2.0, true);
+                paint_label(cr, lbl_h, l, t + h / 2.0, -Math.PI / 2.0);
+                paint_label(cr, lbl_h, r, t + h / 2.0, -Math.PI / 2.0);
             }
 
             // Etiqueta de area en el centro (vertical y horizontalmente)
@@ -158,7 +158,7 @@ namespace Planly
                 double area = Utils.convert_to_metters(_width_px)
                     * Utils.convert_to_metters(_height_px);
                 paint_label(cr, "%.2f m\xc2\xb2".printf(area),
-                    l + w / 2.0, t + h / 2.0, false);
+                    l + w / 2.0, t + h / 2.0, 0.0);
             }
         }
 
