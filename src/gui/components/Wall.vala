@@ -356,6 +356,61 @@ namespace Planly
         // ── Detección de colisión ─────────────────────────────────────────
 
         /**
+         * True si el segmento (x1,y1)→(x2,y2) se cruza con algún segmento YA
+         * CONFIRMADO de este mismo muro (auto-intersección).
+         *
+         * from_idx : índice del vértice en (x1,y1); se salta el segmento que
+         *            termina en ese vértice (adyacente, no se considera cruce).
+         * closing  : true cuando el segmento es el de cierre → también salta S0
+         *            (que comparte V0 con el segmento de cierre).
+         */
+        public bool new_segment_crosses_self (double x1, double y1,
+                                              double x2, double y2,
+                                              int    from_idx,
+                                              bool   closing = false)
+        {
+            int n = _vx.length;
+            for (int i = 0; i < n - 1; i++) {
+                if (from_idx > 0 && i == from_idx - 1) continue; // adyacente al inicio
+                if (closing && i == 0)                  continue; // adyacente al cierre (V0)
+                if (segs_cross (x1, y1, x2, y2,
+                                _vx[i], _vy[i], _vx[i+1], _vy[i+1])) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /**
+         * True si existe algún par de segmentos no adyacentes que se cruzan
+         * en el estado actual del muro (abierto o cerrado).
+         * Se usa después de mover un vértice para detectar auto-intersecciones.
+         */
+        public bool has_self_intersection ()
+        {
+            int n    = _vx.length;
+            int segs = is_closed ? n : n - 1;
+            if (segs < 3) return false;
+
+            for (int i = 0; i < segs; i++) {
+                int ni = (i + 1) % n;
+                double ax = _vx[i], ay = _vy[i];
+                double bx = _vx[ni], by = _vy[ni];
+
+                for (int j = i + 2; j < segs; j++) {
+                    // Para polígono cerrado: (Sc, S0) son adyacentes, saltar
+                    if (is_closed && i == 0 && j == segs - 1) continue;
+                    int nj = (j + 1) % n;
+                    if (segs_cross (ax, ay, bx, by,
+                                    _vx[j], _vy[j], _vx[nj], _vy[nj])) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        /**
          * Devuelve true si alguno de los puntos (vx[i], vy[i]) caería dentro de
          * este polígono (evaluado como contorno cerrado aunque is_closed sea false).
          * Se usa para impedir dibujar un polígono que encierre a una figura existente.
@@ -719,6 +774,7 @@ namespace Planly
             }
 
             paint_segment_labels(cr);
+            paint_vertex_angles(cr);
             if (is_closed && _area_m2>0.0) {
                 double cx=0.0, cy=0.0;
                 for (int i=0; i<n; i++) { cx+=_vx[i]; cy+=_vy[i]; }
@@ -767,6 +823,104 @@ namespace Planly
             cr.arc(x,y,BEZ_HANDLE_R,0,2.0*Math.PI); cr.fill();
             cr.set_source_rgba(0.15,0.4,0.9,1.0);
             cr.arc(x,y,BEZ_HANDLE_R,0,2.0*Math.PI); cr.stroke();
+        }
+
+        /**
+         * Dibuja el ángulo interior (en grados) en cada vértice que tenga dos
+         * segmentos adyacentes.  La etiqueta se coloca a lo largo de la bisectriz
+         * hacia el interior del polígono (o entre los dos brazos para polilíneas).
+         */
+        private void paint_vertex_angles (Cairo.Context cr)
+        {
+            int n = _vx.length;
+            if (n < 2) return;
+
+            // Signo del área (shoelace) para distinguir interior de polígonos cerrados
+            double area_sign = 0.0;
+            if (is_closed && n >= 3) {
+                double a = 0.0;
+                for (int k = 0; k < n; k++) {
+                    int kn = (k + 1) % n;
+                    a += _vx[k] * _vy[kn] - _vx[kn] * _vy[k];
+                }
+                area_sign = (a >= 0) ? 1.0 : -1.0; // +1 = CCW, -1 = CW
+            }
+
+            for (int i = 0; i < n; i++) {
+                int prev = (i > 0) ? i - 1 : (is_closed ? n - 1 : -1);
+                int next = (i < n - 1) ? i + 1 : (is_closed ? 0 : -1);
+                if (prev < 0 || next < 0) continue;
+
+                // Vectores desde el vértice hacia sus vecinos
+                double ax = _vx[prev] - _vx[i], ay = _vy[prev] - _vy[i];
+                double bx = _vx[next] - _vx[i], by = _vy[next] - _vy[i];
+                double ma = Math.sqrt(ax*ax + ay*ay);
+                double mb = Math.sqrt(bx*bx + by*by);
+                if (ma < 1.0 || mb < 1.0) continue;
+
+                // Ángulo entre los dos segmentos adyacentes (0–180°)
+                double cos_a = (ax*bx + ay*by) / (ma * mb);
+                double angle_deg = Math.acos (cos_a.clamp (-1.0, 1.0)) * 180.0 / Math.PI;
+                if (angle_deg < 1.0) continue;
+
+                // Bisectriz = suma de los vectores unitarios
+                double ux = ax/ma + bx/mb;
+                double uy = ay/ma + by/mb;
+                double ulen = Math.sqrt(ux*ux + uy*uy);
+
+                if (ulen < 0.01) {
+                    // Ángulo de 180°: la bisectriz es degenerada, usar perpendicular
+                    ux = -ay / ma;  uy = ax / ma;
+                    ulen = 1.0;
+                } else {
+                    ux /= ulen;  uy /= ulen;
+                }
+
+                // Para polígonos cerrados: asegurarse de que apunta al interior
+                if (is_closed && area_sign != 0.0) {
+                    // Producto vectorial entrante × saliente para detectar vértice reflex
+                    double px = _vx[i] - _vx[prev], py = _vy[i] - _vy[prev];
+                    double qx = _vx[next] - _vx[i], qy = _vy[next] - _vy[i];
+                    double cross = px * qy - py * qx;
+                    bool convex = (area_sign * cross) > 0;
+                    if (!convex) { ux = -ux; uy = -uy; }
+                }
+
+                // ── Arco indicador del ángulo ─────────────────────────────
+                double arc_r  = 10.0;
+                double ang_a  = Math.atan2 (ay, ax); // dirección hacia prev
+                double ang_b  = Math.atan2 (by, bx); // dirección hacia next
+                double ang_m  = Math.atan2 (uy, ux); // bisectriz (interior)
+
+                // Normalizar ang_b y ang_m en [ang_a, ang_a + 2π)
+                // para decidir si barrer CCW o CW
+                double na = ang_a;
+                double nb = ang_b; while (nb < na) nb += 2.0 * Math.PI;
+                double nm = ang_m; while (nm < na) nm += 2.0 * Math.PI;
+
+                cr.save ();
+                cr.set_line_width (1.0);
+                if (_is_selected) {
+                    cr.set_source_rgba (0.8, 0.1, 0.1, 0.75);
+                } else {
+                    cr.set_source_rgba (stroke_r, stroke_g, stroke_b, 0.75);
+                }
+
+                cr.new_sub_path (); // evitar que Cairo conecte el punto actual con el arco
+                if (nm <= nb) {
+                    cr.arc          (_vx[i], _vy[i], arc_r, ang_a, ang_b);
+                } else {
+                    cr.arc_negative (_vx[i], _vy[i], arc_r, ang_a, ang_b);
+                }
+                cr.stroke ();
+                cr.restore ();
+
+                // ── Etiqueta con el valor ──────────────────────────────────
+                paint_label (cr, "%.1f°".printf (angle_deg),
+                             _vx[i] + ux * 20.0,
+                             _vy[i] + uy * 20.0,
+                             0.0);
+            }
         }
 
         private void paint_segment_labels (Cairo.Context cr)

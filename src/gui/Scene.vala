@@ -147,7 +147,16 @@ namespace Planly
             active_tool  = tool;
             active       = null;
             wall_active  = null;
+            wall_v_added = false;
             sel_interact = 0;
+
+            // Deseleccionar la figura activa al cambiar de herramienta
+            if (sel_shape != null) {
+                do_select (null);
+                sel_mode = 0;
+                rebuild_cache ();
+            }
+
             queue_draw ();
         }
 
@@ -412,10 +421,16 @@ namespace Planly
                 int nv  = wall_active.vertex_count;
                 double lx = wall_active.get_vertex_x (nv - 1);
                 double ly = wall_active.get_vertex_y (nv - 1);
-                bool blocked = would_block_drawing (lx, ly, cx, cy);
-                // Cerca del primer vértice: comprobar también encierro
+
+                bool blocked = would_block_drawing (lx, ly, cx, cy) ||
+                               wall_active.new_segment_crosses_self (lx, ly, cx, cy, nv - 1);
+
+                // Cerca del primer vértice: comprobar encierro y auto-cruce del cierre
                 if (!blocked && wall_active.near_first_vertex (cx, cy)) {
-                    blocked = would_enclose_existing (wall_active);
+                    double fx = wall_active.get_vertex_x (0);
+                    double fy = wall_active.get_vertex_y (0);
+                    blocked = would_enclose_existing (wall_active) ||
+                              wall_active.new_segment_crosses_self (lx, ly, fx, fy, nv - 1, true);
                 }
                 wall_active.preview_blocked = blocked;
 
@@ -473,7 +488,8 @@ namespace Planly
                     double fx = wall_active.get_vertex_x (0);
                     double fy = wall_active.get_vertex_y (0);
                     if (!would_block_drawing (lx, ly, fx, fy) &&
-                        !would_enclose_existing (wall_active)) {
+                        !would_enclose_existing (wall_active) &&
+                        !wall_active.new_segment_crosses_self (lx, ly, fx, fy, nv - 1, true)) {
                         wall_active.close ();
                     } else {
                         // Bloqueado → cancelar (igual que Escape)
@@ -492,12 +508,17 @@ namespace Planly
                     double fy = wall_active.get_vertex_y (0);
 
                     bool ok = !would_block_drawing (lx, ly, cx, cy) &&
-                              !would_block_drawing (cx, cy, fx, fy);
+                              !would_block_drawing (cx, cy, fx, fy) &&
+                              !wall_active.new_segment_crosses_self (lx, ly, cx, cy, nv - 1);
 
                     if (ok) {
-                        // Comprobar encierro añadiendo (cx,cy) temporalmente
+                        // Comprobar encierro y auto-cruce del tramo de cierre
                         wall_active.add_vertex (cx, cy);
-                        if (would_enclose_existing (wall_active)) {
+                        int nv2 = wall_active.vertex_count;
+                        double lx2 = wall_active.get_vertex_x (nv2 - 1);
+                        double ly2 = wall_active.get_vertex_y (nv2 - 1);
+                        if (would_enclose_existing (wall_active) ||
+                            wall_active.new_segment_crosses_self (lx2, ly2, fx, fy, nv2 - 1, true)) {
                             wall_active.remove_last_vertex ();
                             ok = false;
                         }
@@ -547,7 +568,8 @@ namespace Planly
                 double fx = wall_active.get_vertex_x (0);
                 double fy = wall_active.get_vertex_y (0);
                 if (would_block_drawing (lx, ly, fx, fy) ||
-                    would_enclose_existing (wall_active)) {
+                    would_enclose_existing (wall_active) ||
+                    wall_active.new_segment_crosses_self (lx, ly, fx, fy, nv - 1, true)) {
                     queue_draw ();
                     return;
                 }
@@ -562,7 +584,8 @@ namespace Planly
                 int nv = wall_active.vertex_count;
                 double lx = wall_active.get_vertex_x (nv - 1);
                 double ly = wall_active.get_vertex_y (nv - 1);
-                if (would_block_drawing (lx, ly, cx, cy)) {
+                if (would_block_drawing (lx, ly, cx, cy) ||
+                    wall_active.new_segment_crosses_self (lx, ly, cx, cy, nv - 1)) {
                     queue_draw ();
                     return;
                 }
@@ -756,10 +779,12 @@ namespace Planly
                 }
             }
 
-            // Restaurar al estado inicial del drag, aplicar y comprobar colisión
+            // Restaurar al estado inicial del drag, aplicar y comprobar colisión/auto-cruce
             restore_trans_snap (wall);
             wall.move_vertex (vert_drag_idx, fx, fy);
-            if (check_collisions (wall)) restore_trans_snap (wall);
+            if (check_collisions (wall) || wall.has_self_intersection ()) {
+                restore_trans_snap (wall);
+            }
 
             rebuild_cache ();
             queue_draw ();
@@ -907,6 +932,22 @@ namespace Planly
                 shift_pressed = true;
             }
 
+            // Suprimir figura completa en modo transform
+            if (keyval == Gdk.Key.Delete && sel_mode == 1 && sel_shape != null) {
+                Shape[] remaining = {};
+                foreach (unowned var s in shapes) {
+                    if (s != sel_shape) remaining += s;
+                }
+                shapes       = remaining;
+                sel_shape    = null;
+                sel_mode     = 0;
+                sel_interact = 0;
+                rebuild_cache ();
+                queue_draw ();
+                metrics_updated ("", "", "");
+                return true;
+            }
+
             // Suprimir vértice seleccionado en modo edición de vértices
             if (keyval == Gdk.Key.Delete &&
                 sel_mode == 2 && sel_shape is Wall && sel_vertex_idx >= 0) {
@@ -950,26 +991,34 @@ namespace Planly
 
             // Flechas: mover el vértice seleccionado en modo edición
             if (sel_mode == 2 && sel_shape is Wall && sel_vertex_idx >= 0) {
-                double step = (state & Gdk.ModifierType.SHIFT_MASK) != 0 ? 10.0 : 1.0;
-                var kwall   = (Wall) sel_shape;
-                double vx   = kwall.get_vertex_x (sel_vertex_idx);
-                double vy   = kwall.get_vertex_y (sel_vertex_idx);
-                bool moved  = true;
+                double step  = (state & Gdk.ModifierType.SHIFT_MASK) != 0 ? 10.0 : 1.0;
+                var kwall    = (Wall) sel_shape;
+                double old_x = kwall.get_vertex_x (sel_vertex_idx);
+                double old_y = kwall.get_vertex_y (sel_vertex_idx);
+                bool moved   = true;
 
                 switch (keyval) {
-                case Gdk.Key.Up:    kwall.move_vertex (sel_vertex_idx, vx,        vy - step); break;
-                case Gdk.Key.Down:  kwall.move_vertex (sel_vertex_idx, vx,        vy + step); break;
-                case Gdk.Key.Left:  kwall.move_vertex (sel_vertex_idx, vx - step, vy);        break;
-                case Gdk.Key.Right: kwall.move_vertex (sel_vertex_idx, vx + step, vy);        break;
+                case Gdk.Key.Up:    kwall.move_vertex (sel_vertex_idx, old_x,          old_y - step); break;
+                case Gdk.Key.Down:  kwall.move_vertex (sel_vertex_idx, old_x,          old_y + step); break;
+                case Gdk.Key.Left:  kwall.move_vertex (sel_vertex_idx, old_x - step,   old_y);        break;
+                case Gdk.Key.Right: kwall.move_vertex (sel_vertex_idx, old_x + step,   old_y);        break;
                 default:            moved = false; break;
+                }
+
+                if (moved) {
+                    // Revertir si la nueva posición genera colisión o auto-cruce
+                    if (check_collisions (kwall) || kwall.has_self_intersection ()) {
+                        kwall.move_vertex (sel_vertex_idx, old_x, old_y);
+                        moved = false;
+                    }
                 }
 
                 if (moved) {
                     rebuild_cache ();
                     queue_draw ();
                     metrics_updated (kwall.get_size_px (), kwall.get_size_m (), kwall.get_area_m2 ());
-                    return true;
                 }
+                return true;
             }
 
             if ((state & Gdk.ModifierType.CONTROL_MASK) != 0) {
