@@ -351,6 +351,124 @@ namespace Planly
             update_metrics ();
         }
 
+        // ── Detección de colisión ─────────────────────────────────────────
+
+        /**
+         * Devuelve true si alguno de los puntos (vx[i], vy[i]) caería dentro de
+         * este polígono (evaluado como contorno cerrado aunque is_closed sea false).
+         * Se usa para impedir dibujar un polígono que encierre a una figura existente.
+         */
+        public bool encloses_any_of (double[] vx, double[] vy)
+        {
+            for (int i = 0; i < vx.length; i++) {
+                if (point_in_polygon (vx[i], vy[i])) return true;
+            }
+            return false;
+        }
+
+        /**
+         * Devuelve true si el segmento (x1,y1)→(x2,y2) cruza o penetra este muro.
+         * Cuando x1==x2 y y1==y2 sólo comprueba si el punto está dentro del polígono.
+         * Se usa para impedir dibujar sobre figuras existentes.
+         */
+        public bool blocks_new_segment (double x1, double y1, double x2, double y2)
+        {
+            double[] ox, oy;
+            get_outline_pts (out ox, out oy);
+
+            for (int i = 0; i < ox.length - 1; i++) {
+                if (segs_cross (x1, y1, x2, y2, ox[i], oy[i], ox[i+1], oy[i+1])) return true;
+            }
+
+            if (is_closed && point_in_polygon (x2, y2)) return true;
+
+            return false;
+        }
+
+        /**
+         * Devuelve true si este muro se superpone geométricamente con other.
+         *
+         * Algoritmo:
+         *   1. Convertir ambos muros a polilíneas (aproximando curvas Bézier).
+         *   2. Comprobar si algún par de segmentos se cruza propiamente.
+         *   3. Para polígonos cerrados, comprobar también si uno está dentro del otro.
+         */
+        public bool collides_with (Wall other)
+        {
+            double[] ax, ay, bx, by;
+            get_outline_pts (out ax, out ay);
+            other.get_outline_pts (out bx, out by);
+
+            int na = ax.length, nb = bx.length;
+
+            for (int i = 0; i < na - 1; i++) {
+                for (int j = 0; j < nb - 1; j++) {
+                    if (segs_cross (ax[i], ay[i], ax[i+1], ay[i+1],
+                                    bx[j], by[j], bx[j+1], by[j+1])) {
+                        return true;
+                    }
+                }
+            }
+
+            if (is_closed       && nb > 0 && point_in_polygon (bx[0], by[0])) return true;
+            if (other.is_closed && na > 0 && other.point_in_polygon (ax[0], ay[0])) return true;
+
+            return false;
+        }
+
+        /**
+         * Devuelve los puntos de la polilínea de contorno.
+         * Los segmentos Bézier se aproximan con 6 puntos intermedios.
+         */
+        private void get_outline_pts (out double[] ox, out double[] oy)
+        {
+            double[] px = {}, py = {};
+            int n = _vx.length;
+            if (n == 0) { ox = px; oy = py; return; }
+
+            px += _vx[0]; py += _vy[0];
+            int segs = is_closed ? n : n - 1;
+
+            for (int i = 0; i < segs; i++) {
+                int to = (i < n - 1) ? i + 1 : 0;
+                if (_bez_out[i] || _bez_in[to]) {
+                    double p0x = _vx[i],  p0y = _vy[i];
+                    double p3x = _vx[to], p3y = _vy[to];
+                    double p1x = _bez_out[i] ? _cp_ox[i]  : p0x;
+                    double p1y = _bez_out[i] ? _cp_oy[i]  : p0y;
+                    double p2x = _bez_in[to] ? _cp_ix[to] : p3x;
+                    double p2y = _bez_in[to] ? _cp_iy[to] : p3y;
+                    const int N = 6;
+                    for (int k = 1; k <= N; k++) {
+                        double t = (double)k / N, mt = 1.0 - t;
+                        px += mt*mt*mt*p0x + 3*mt*mt*t*p1x + 3*mt*t*t*p2x + t*t*t*p3x;
+                        py += mt*mt*mt*p0y + 3*mt*mt*t*p1y + 3*mt*t*t*p2y + t*t*t*p3y;
+                    }
+                } else {
+                    px += _vx[to]; py += _vy[to];
+                }
+            }
+            ox = px; oy = py;
+        }
+
+        /** True si los segmentos (x1,y1)-(x2,y2) y (x3,y3)-(x4,y4) se cruzan propiamente. */
+        private bool segs_cross (double x1, double y1, double x2, double y2,
+                                  double x3, double y3, double x4, double y4)
+        {
+            double d1 = cross2d (x3, y3, x4, y4, x1, y1);
+            double d2 = cross2d (x3, y3, x4, y4, x2, y2);
+            double d3 = cross2d (x1, y1, x2, y2, x3, y3);
+            double d4 = cross2d (x1, y1, x2, y2, x4, y4);
+            return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) &&
+                   ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+        }
+
+        private double cross2d (double ox, double oy, double ex, double ey,
+                                 double px, double py)
+        {
+            return (ex - ox) * (py - oy) - (ey - oy) * (px - ox);
+        }
+
         // ── Shape overrides ───────────────────────────────────────────────
 
         public override bool has_handle_at (double x, double y)
