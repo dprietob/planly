@@ -82,7 +82,8 @@ namespace Planly
         // Snapshot unificado (vértices + datos Bézier) para resize/rotate
         private double[] trans_snap_vx  = {};
         private double[] trans_snap_vy  = {};
-        private bool[]   trans_snap_bez = {};
+        private bool[]   trans_snap_bez_in  = {};
+        private bool[]   trans_snap_bez_out = {};
         private double[] trans_snap_cox = {};
         private double[] trans_snap_coy = {};
         private double[] trans_snap_cix = {};
@@ -495,7 +496,8 @@ namespace Planly
         {
             if (!(sel_shape is Wall)) return;
             var wall = (Wall) sel_shape;
-            wall.restore_full_snapshot (trans_snap_vx, trans_snap_vy, trans_snap_bez,
+            wall.restore_full_snapshot (trans_snap_vx, trans_snap_vy,
+                                        trans_snap_bez_in, trans_snap_bez_out,
                                         trans_snap_cox, trans_snap_coy,
                                         trans_snap_cix, trans_snap_ciy);
             double sx = resize_orig_w > 1.0
@@ -512,7 +514,8 @@ namespace Planly
         {
             if (!(sel_shape is Wall)) return;
             var wall = (Wall) sel_shape;
-            wall.restore_full_snapshot (trans_snap_vx, trans_snap_vy, trans_snap_bez,
+            wall.restore_full_snapshot (trans_snap_vx, trans_snap_vy,
+                                        trans_snap_bez_in, trans_snap_bez_out,
                                         trans_snap_cox, trans_snap_coy,
                                         trans_snap_cix, trans_snap_ciy);
             double delta = Math.atan2 (cy - rot_cy, cx - rot_cx) - rot_orig_angle;
@@ -663,7 +666,8 @@ namespace Planly
         {
             if (sel_shape is Wall) {
                 ((Wall) sel_shape).get_full_snapshot (
-                    out trans_snap_vx, out trans_snap_vy, out trans_snap_bez,
+                    out trans_snap_vx, out trans_snap_vy,
+                    out trans_snap_bez_in, out trans_snap_bez_out,
                     out trans_snap_cox, out trans_snap_coy,
                     out trans_snap_cix, out trans_snap_ciy);
             }
@@ -681,6 +685,22 @@ namespace Planly
         {
             if (keyval == Gdk.Key.Shift_L || keyval == Gdk.Key.Shift_R) {
                 shift_pressed = true;
+            }
+
+            // Suprimir vértice seleccionado en modo edición de vértices
+            if (keyval == Gdk.Key.Delete &&
+                sel_mode == 2 && sel_shape is Wall && sel_vertex_idx >= 0) {
+                var del_wall = (Wall) sel_shape;
+                if (del_wall.delete_vertex (sel_vertex_idx)) {
+                    sel_vertex_idx              = -1;
+                    del_wall.selected_vertex    = -1;
+                    rebuild_cache ();
+                    queue_draw ();
+                    metrics_updated (del_wall.get_size_px (),
+                                     del_wall.get_size_m (),
+                                     del_wall.get_area_m2 ());
+                }
+                return true;
             }
 
             if (keyval == Gdk.Key.Escape) {
