@@ -48,7 +48,9 @@ namespace Planly
         private ToolType active_tool = ToolType.SELECT;
 
         // ── Muro en curso (clic-a-clic) ───────────────────────────────────
-        private Wall? wall_active = null;
+        private Wall? wall_active  = null;
+        // True si el último n_press=1 añadió efectivamente un vértice al muro
+        private bool  wall_v_added = false;
 
         // ── Selección ─────────────────────────────────────────────────────
         private Shape? sel_shape = null;
@@ -285,6 +287,7 @@ namespace Planly
                         sel_interact    = 5;
                         sel_press_x     = cx;
                         sel_press_y     = cy;
+                        take_transform_snapshot ();
                         return;
                     }
 
@@ -297,6 +300,7 @@ namespace Planly
                         sel_interact           = 4;
                         sel_press_x            = cx;
                         sel_press_y            = cy;
+                        take_transform_snapshot ();
                         rebuild_cache ();
                         queue_draw ();
                         return;
@@ -403,6 +407,18 @@ namespace Planly
 
             if (wall_active != null) {
                 wall_active.update_preview (cx, cy);
+
+                // Calcular si la previsualización actual está bloqueada
+                int nv  = wall_active.vertex_count;
+                double lx = wall_active.get_vertex_x (nv - 1);
+                double ly = wall_active.get_vertex_y (nv - 1);
+                bool blocked = would_block_drawing (lx, ly, cx, cy);
+                // Cerca del primer vértice: comprobar también encierro
+                if (!blocked && wall_active.near_first_vertex (cx, cy)) {
+                    blocked = would_enclose_existing (wall_active);
+                }
+                wall_active.preview_blocked = blocked;
+
                 queue_draw ();
                 metrics_updated (
                     wall_active.get_size_px (),
@@ -439,14 +455,19 @@ namespace Planly
 
         private void handle_wall_click (int n_press, double cx, double cy)
         {
+            // ── Doble clic ────────────────────────────────────────────────
             if (n_press == 2) {
                 if (wall_active == null) return;
-                // El n_press=1 ya añadió un vértice; deshacerlo
-                wall_active.remove_last_vertex ();
+
+                // Deshacer el vértice que n_press=1 pudo haber añadido
+                if (wall_v_added) {
+                    wall_active.remove_last_vertex ();
+                    wall_v_added = false;
+                }
 
                 if (wall_active.near_first_vertex (cx, cy)) {
-                    // Intentar cerrar; si el tramo o el encierro bloquean, terminar abierta
-                    int nv  = wall_active.vertex_count;
+                    // ── Cerca del primer vértice ──────────────────────────
+                    int nv = wall_active.vertex_count;
                     double lx = wall_active.get_vertex_x (nv - 1);
                     double ly = wall_active.get_vertex_y (nv - 1);
                     double fx = wall_active.get_vertex_x (0);
@@ -455,11 +476,44 @@ namespace Planly
                         !would_enclose_existing (wall_active)) {
                         wall_active.close ();
                     } else {
-                        wall_active.finish ();
+                        // Bloqueado → cancelar (igual que Escape)
+                        wall_active = null;
+                        queue_draw ();
+                        metrics_updated ("", "", "");
+                        return;
                     }
+
                 } else if (wall_active.vertex_count >= 2) {
-                    wall_active.finish ();
+                    // ── Lejos del primer vértice: trazar recta a V0 ───────
+                    int nv = wall_active.vertex_count;
+                    double lx = wall_active.get_vertex_x (nv - 1);
+                    double ly = wall_active.get_vertex_y (nv - 1);
+                    double fx = wall_active.get_vertex_x (0);
+                    double fy = wall_active.get_vertex_y (0);
+
+                    bool ok = !would_block_drawing (lx, ly, cx, cy) &&
+                              !would_block_drawing (cx, cy, fx, fy);
+
+                    if (ok) {
+                        // Comprobar encierro añadiendo (cx,cy) temporalmente
+                        wall_active.add_vertex (cx, cy);
+                        if (would_enclose_existing (wall_active)) {
+                            wall_active.remove_last_vertex ();
+                            ok = false;
+                        }
+                    }
+
+                    if (ok) {
+                        // (cx,cy) ya fue añadido; cerrar el polígono
+                        wall_active.close ();
+                    } else {
+                        // Bloqueado → forzar al usuario a usar el punto verde o Escape
+                        queue_draw ();
+                        return;
+                    }
+
                 } else {
+                    // Menos de 2 vértices: cancelar
                     wall_active = null;
                     queue_draw ();
                     metrics_updated ("", "", "");
@@ -474,10 +528,10 @@ namespace Planly
                 return;
             }
 
-            // ── Clic simple ───────────────────────────────────────────────
+            // ── Clic simple (n_press == 1) ────────────────────────────────
+            wall_v_added = false;
 
             if (wall_active == null) {
-                // Primer vértice: rechazar si está dentro de una figura existente
                 if (would_block_drawing (cx, cy, cx, cy)) {
                     queue_draw ();
                     return;
@@ -486,8 +540,8 @@ namespace Planly
                 wall_active.start_draw (cx, cy);
 
             } else if (wall_active.near_first_vertex (cx, cy)) {
-                // Cierre de polígono: comprobar tramo de cierre y encierro
-                int nv  = wall_active.vertex_count;
+                // Cierre con clic en el círculo verde
+                int nv = wall_active.vertex_count;
                 double lx = wall_active.get_vertex_x (nv - 1);
                 double ly = wall_active.get_vertex_y (nv - 1);
                 double fx = wall_active.get_vertex_x (0);
@@ -504,8 +558,8 @@ namespace Planly
                 metrics_updated ("", "", "");
 
             } else {
-                // Nuevo vértice: comprobar el tramo desde el último vértice
-                int nv  = wall_active.vertex_count;
+                // Nuevo vértice intermedio
+                int nv = wall_active.vertex_count;
                 double lx = wall_active.get_vertex_x (nv - 1);
                 double ly = wall_active.get_vertex_y (nv - 1);
                 if (would_block_drawing (lx, ly, cx, cy)) {
@@ -513,6 +567,7 @@ namespace Planly
                     return;
                 }
                 wall_active.add_vertex (cx, cy);
+                wall_v_added = true;
             }
             queue_draw ();
         }
@@ -673,9 +728,16 @@ namespace Planly
         private void do_bezier (double cx, double cy)
         {
             if (!(sel_shape is Wall)) return;
-            ((Wall) sel_shape).move_bezier_cp (bezier_vert_idx, bezier_is_out, cx, cy);
+            var wall = (Wall) sel_shape;
+
+            // Restaurar al estado inicial del drag, aplicar y comprobar colisión
+            restore_trans_snap (wall);
+            wall.move_bezier_cp (bezier_vert_idx, bezier_is_out, cx, cy);
+            if (check_collisions (wall)) restore_trans_snap (wall);
+
             rebuild_cache ();
             queue_draw ();
+            metrics_updated (wall.get_size_px (), wall.get_size_m (), wall.get_area_m2 ());
         }
 
         private void do_vertex (double cx, double cy)
@@ -694,7 +756,11 @@ namespace Planly
                 }
             }
 
+            // Restaurar al estado inicial del drag, aplicar y comprobar colisión
+            restore_trans_snap (wall);
             wall.move_vertex (vert_drag_idx, fx, fy);
+            if (check_collisions (wall)) restore_trans_snap (wall);
+
             rebuild_cache ();
             queue_draw ();
             metrics_updated (wall.get_size_px (), wall.get_size_m (), wall.get_area_m2 ());

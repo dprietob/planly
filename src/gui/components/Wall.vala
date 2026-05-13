@@ -41,7 +41,9 @@ namespace Planly
         public bool is_drawing { get; private set; default = true; }
         public bool is_closed  { get; private set; default = false; }
 
-        public int selected_vertex = -1;
+        public int  selected_vertex  = -1;
+        /** True si la previsualización actual está bloqueada (colisión). */
+        public bool preview_blocked  = false;
 
         // ── Métricas ──────────────────────────────────────────────────────
         private double _len_px  = 0.0;
@@ -677,11 +679,16 @@ namespace Planly
                 cr.stroke();
             }
 
+            // Segmento de previsualización — rojo si está bloqueado por colisión
             if (is_drawing) {
                 cr.save();
                 double[] dash={6.0,4.0};
                 cr.set_dash(dash,0.0);
-                cr.set_source_rgba(stroke_r,stroke_g,stroke_b,stroke_a*0.6);
+                if (preview_blocked) {
+                    cr.set_source_rgba(0.85, 0.1, 0.1, 0.85);
+                } else {
+                    cr.set_source_rgba(stroke_r,stroke_g,stroke_b,stroke_a*0.6);
+                }
                 cr.move_to(_vx[n-1],_vy[n-1]); cr.line_to(_cx,_cy);
                 cr.stroke(); cr.restore();
             }
@@ -698,8 +705,13 @@ namespace Planly
                         paint_handle(cr,_vx[i],_vy[i]);
                     }
                 }
+                // Indicador de cierre: verde si es válido, rojo si está bloqueado
                 if (is_drawing && n>=3 && near_first_vertex(_cx,_cy)) {
-                    cr.set_source_rgba(0.2,0.78,0.2,0.9);
+                    if (preview_blocked) {
+                        cr.set_source_rgba(0.85, 0.1, 0.1, 0.9);
+                    } else {
+                        cr.set_source_rgba(0.2,0.78,0.2,0.9);
+                    }
                     cr.arc(_vx[0],_vy[0],HANDLE_RADIUS*2.0,0,2.0*Math.PI);
                     cr.fill();
                 }
