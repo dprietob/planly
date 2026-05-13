@@ -82,8 +82,11 @@ namespace Planly
         private double[] rot_snap_vx    = {};
         private double[] rot_snap_vy    = {};
 
-        // Vértice arrastrado
+        // Vértice arrastrado (durante drag)
         private int vert_drag_idx = -1;
+
+        // Vértice seleccionado para control por teclado (-1 = ninguno)
+        private int sel_vertex_idx = -1;
 
         // Shift para snapping
         private bool shift_pressed = false;
@@ -209,6 +212,25 @@ namespace Planly
         {
             // ── Doble clic ────────────────────────────────────────────────
             if (n_press == 2) {
+                // Modo vértices: doble clic en segmento → insertar vértice nuevo
+                if (sel_mode == 2 && sel_shape is Wall) {
+                    var wall = (Wall) sel_shape;
+                    if (!wall.has_handle_at (cx, cy)) {
+                        double proj_x, proj_y;
+                        int seg = wall.find_segment_at (cx, cy, 10.0, out proj_x, out proj_y);
+                        if (seg >= 0) {
+                            int new_idx   = wall.insert_vertex (seg, proj_x, proj_y);
+                            vert_drag_idx = new_idx;
+                            sel_interact  = 4;
+                            sel_press_x   = proj_x;
+                            sel_press_y   = proj_y;
+                            rebuild_cache ();
+                            queue_draw ();
+                            return;
+                        }
+                    }
+                }
+
                 if (sel_shape != null &&
                     (sel_shape.contains_point (cx, cy) ||
                      sel_shape.has_handle_at (cx, cy))) {
@@ -231,21 +253,24 @@ namespace Planly
             // Modo vértices activo
             if (sel_mode == 2 && sel_shape != null) {
                 if (sel_shape is Wall) {
-                    int vi = ((Wall) sel_shape).find_vertex (cx, cy);
+                    var wall_v = (Wall) sel_shape;
+                    int vi     = wall_v.find_vertex (cx, cy);
                     if (vi >= 0) {
-                        vert_drag_idx = vi;
-                        sel_interact  = 4;
-                        sel_press_x   = cx;
-                        sel_press_y   = cy;
+                        // Seleccionar vértice visualmente + preparar arrastre
+                        sel_vertex_idx              = vi;
+                        wall_v.selected_vertex      = vi;
+                        vert_drag_idx               = vi;
+                        sel_interact                = 4;
+                        sel_press_x                 = cx;
+                        sel_press_y                 = cy;
+                        rebuild_cache ();
+                        queue_draw ();
                         return;
                     }
                 }
-                // Clic en el cuerpo de la figura (no en vértice) → transform
+                // Clic en el cuerpo (no en vértice) → no cambia de modo;
+                // el doble clic sobre el segmento insertará un vértice nuevo
                 if (sel_shape.contains_point (cx, cy)) {
-                    enter_transform_mode ();
-                    sel_interact = 1;
-                    sel_press_x  = cx;
-                    sel_press_y  = cy;
                     return;
                 }
                 // Clic fuera → hit-test general
@@ -404,6 +429,13 @@ namespace Planly
             if (wall_active == null) {
                 wall_active = new Wall ();
                 wall_active.start_draw (cx, cy);
+            } else if (wall_active.near_first_vertex (cx, cy)) {
+                // Clic sobre el círculo verde → cerrar polígono
+                wall_active.close ();
+                shapes += wall_active;
+                rebuild_cache ();
+                wall_active = null;
+                metrics_updated ("", "", "");
             } else {
                 wall_active.add_vertex (cx, cy);
             }
@@ -513,16 +545,24 @@ namespace Planly
         {
             foreach (unowned var s in shapes) {
                 s.set_selected (s == target);
-                if (s != target) s.vertex_handles_visible = false;
+                if (s != target) {
+                    s.vertex_handles_visible = false;
+                    if (s is Wall) ((Wall) s).selected_vertex = -1;
+                }
             }
-            sel_shape = target;
+            sel_shape      = target;
+            sel_vertex_idx = -1;
         }
 
         /** Entra en modo TRANSFORM (bbox + handles de escala/rotación). */
         private void enter_transform_mode ()
         {
-            sel_mode = 1;
-            if (sel_shape != null) sel_shape.vertex_handles_visible = false;
+            sel_mode       = 1;
+            sel_vertex_idx = -1;
+            if (sel_shape != null) {
+                sel_shape.vertex_handles_visible = false;
+                if (sel_shape is Wall) ((Wall) sel_shape).selected_vertex = -1;
+            }
             rebuild_cache ();
             queue_draw ();
         }
@@ -621,6 +661,30 @@ namespace Planly
                         queue_draw ();
                         metrics_updated ("", "", "");
                     }
+                    return true;
+                }
+            }
+
+            // Flechas: mover el vértice seleccionado en modo edición
+            if (sel_mode == 2 && sel_shape is Wall && sel_vertex_idx >= 0) {
+                double step = (state & Gdk.ModifierType.SHIFT_MASK) != 0 ? 10.0 : 1.0;
+                var kwall   = (Wall) sel_shape;
+                double vx   = kwall.get_vertex_x (sel_vertex_idx);
+                double vy   = kwall.get_vertex_y (sel_vertex_idx);
+                bool moved  = true;
+
+                switch (keyval) {
+                case Gdk.Key.Up:    kwall.move_vertex (sel_vertex_idx, vx,        vy - step); break;
+                case Gdk.Key.Down:  kwall.move_vertex (sel_vertex_idx, vx,        vy + step); break;
+                case Gdk.Key.Left:  kwall.move_vertex (sel_vertex_idx, vx - step, vy);        break;
+                case Gdk.Key.Right: kwall.move_vertex (sel_vertex_idx, vx + step, vy);        break;
+                default:            moved = false; break;
+                }
+
+                if (moved) {
+                    rebuild_cache ();
+                    queue_draw ();
+                    metrics_updated (kwall.get_size_px (), kwall.get_size_m (), kwall.get_area_m2 ());
                     return true;
                 }
             }

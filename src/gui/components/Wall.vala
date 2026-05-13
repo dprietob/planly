@@ -43,6 +43,9 @@ namespace Planly
         public bool is_drawing { get; private set; default = true; }
         public bool is_closed  { get; private set; default = false; }
 
+        // Vértice seleccionado con teclado en modo edición (-1 = ninguno)
+        public int selected_vertex = -1;
+
         // Métricas cacheadas
         private double _len_px  = 0.0;
         private double _len_m   = 0.0;
@@ -179,6 +182,74 @@ namespace Planly
 
         // ── API de edición de vértices ────────────────────────────────────
 
+        /**
+         * Busca el segmento más cercano al punto (x, y) dentro de la tolerancia tol.
+         * Si lo encuentra devuelve su índice y la proyección del punto sobre él.
+         * Retorna -1 si ningún segmento está a esa distancia.
+         */
+        public int find_segment_at (double x, double y, double tol,
+                                    out double proj_x, out double proj_y)
+        {
+            proj_x = x;
+            proj_y = y;
+            int n    = _vx.length;
+            int segs = is_closed ? n : n - 1;
+
+            for (int i = 0; i < segs; i++) {
+                double x1, y1, x2, y2;
+                if (i < n - 1) {
+                    x1 = _vx[i];     y1 = _vy[i];
+                    x2 = _vx[i + 1]; y2 = _vy[i + 1];
+                } else {
+                    x1 = _vx[n - 1]; y1 = _vy[n - 1];
+                    x2 = _vx[0];     y2 = _vy[0];
+                }
+                double dx   = x2 - x1;
+                double dy   = y2 - y1;
+                double len2 = dx * dx + dy * dy;
+                if (len2 < 1.0) continue;
+
+                double t  = ((x - x1) * dx + (y - y1) * dy) / len2;
+                t         = t.clamp (0.0, 1.0);
+                double ex = x1 + t * dx;
+                double ey = y1 + t * dy;
+                double d  = Math.sqrt ((x - ex) * (x - ex) + (y - ey) * (y - ey));
+                if (d <= tol) {
+                    proj_x = ex;
+                    proj_y = ey;
+                    return i;
+                }
+            }
+            return -1;
+        }
+
+        /**
+         * Inserta un nuevo vértice en (x, y) tras el segmento seg_idx.
+         * Devuelve el índice del vértice insertado.
+         */
+        public int insert_vertex (int seg_idx, double x, double y)
+        {
+            int insert_at = seg_idx + 1;
+            double[] new_vx = {};
+            double[] new_vy = {};
+
+            for (int i = 0; i < insert_at; i++) {
+                new_vx += _vx[i];
+                new_vy += _vy[i];
+            }
+            new_vx += x;
+            new_vy += y;
+            for (int i = insert_at; i < _vx.length; i++) {
+                new_vx += _vx[i];
+                new_vy += _vy[i];
+            }
+
+            _vx = new_vx;
+            _vy = new_vy;
+            update_metrics ();
+            return insert_at;
+        }
+
         /** Índice del vértice más cercano al punto (x, y), o -1 si ninguno. */
         public int find_vertex (double x, double y)
         {
@@ -189,6 +260,18 @@ namespace Planly
                 if (dx * dx + dy * dy <= tol2) return i;
             }
             return -1;
+        }
+
+        /** Coordenada X del vértice idx. */
+        public double get_vertex_x (int idx)
+        {
+            return (idx >= 0 && idx < _vx.length) ? _vx[idx] : 0.0;
+        }
+
+        /** Coordenada Y del vértice idx. */
+        public double get_vertex_y (int idx)
+        {
+            return (idx >= 0 && idx < _vy.length) ? _vy[idx] : 0.0;
         }
 
         /** Mueve el vértice de índice idx a (x, y) y recalcula métricas. */
@@ -295,6 +378,7 @@ namespace Planly
             double tol = 8.0;
             int    n   = _vx.length;
 
+            // Proximidad a cualquier segmento (borde)
             for (int i = 0; i < n - 1; i++) {
                 if (near_segment (x, y, _vx[i], _vy[i], _vx[i + 1], _vy[i + 1], tol)) {
                     return true;
@@ -304,8 +388,30 @@ namespace Planly
                 if (near_segment (x, y, _vx[n - 1], _vy[n - 1], _vx[0], _vy[0], tol)) {
                     return true;
                 }
+                // Interior del polígono cerrado (ray casting)
+                if (point_in_polygon (x, y)) {
+                    return true;
+                }
             }
             return false;
+        }
+
+        /** Ray-casting: devuelve true si (x, y) está dentro del polígono. */
+        private bool point_in_polygon (double x, double y)
+        {
+            int  n      = _vx.length;
+            bool inside = false;
+            int  j      = n - 1;
+            for (int i = 0; i < n; i++) {
+                double xi = _vx[i], yi = _vy[i];
+                double xj = _vx[j], yj = _vy[j];
+                if (((yi > y) != (yj > y)) &&
+                    (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) {
+                    inside = !inside;
+                }
+                j = i;
+            }
+            return inside;
         }
 
         private bool near_segment (double px, double py,
@@ -424,7 +530,14 @@ namespace Planly
                     cr.set_source_rgba (stroke_r, stroke_g, stroke_b, 1.0);
                 }
                 for (int i = 0; i < n; i++) {
-                    paint_handle (cr, _vx[i], _vy[i]);
+                    if (i == selected_vertex) {
+                        // Vértice seleccionado con teclado: círculo relleno azul
+                        cr.set_source_rgba (0.1, 0.3, 0.9, 1.0);
+                        cr.arc (_vx[i], _vy[i], HANDLE_RADIUS + 1.5, 0, 2.0 * Math.PI);
+                        cr.fill ();
+                    } else {
+                        paint_handle (cr, _vx[i], _vy[i]);
+                    }
                 }
 
                 // Indicador verde: cerca del primer vértice → cierre de polígono
