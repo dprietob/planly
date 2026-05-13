@@ -41,10 +41,7 @@ namespace Planly
         private const double ZOOM_MAX  = 8.0;
         private double zoom_level = 1.0;
 
-        // ── Figuras y dibujo drag-based ───────────────────────────────────
         private Shape[]  shapes      = {};
-        private Shape?   active      = null;
-        private bool     has_dragged = false;
         private ToolType active_tool = ToolType.SELECT;
 
         // ── Muro en curso (clic-a-clic) ───────────────────────────────────
@@ -135,7 +132,7 @@ namespace Planly
             setup_controllers ();
 
             GLib.Timeout.add (16, () => {
-                if (active != null || wall_being_drawn != null) queue_draw ();
+                if (wall_being_drawn != null) queue_draw ();
                 return GLib.Source.CONTINUE;
             });
         }
@@ -145,7 +142,6 @@ namespace Planly
         public void set_tool (ToolType tool)
         {
             active_tool          = tool;
-            active               = null;
             wall_being_drawn     = null;
             wall_vertex_was_added = false;
             interaction_type     = 0;
@@ -222,12 +218,7 @@ namespace Planly
 
             if (active_tool == ToolType.SELECT) {
                 on_select_press (n_press, canvas_x, canvas_y);
-                return;
             }
-
-            has_dragged = false;
-            active      = create_shape ();
-            if (active != null) active.on_mouse_pressed (canvas_x, canvas_y);
         }
 
         private void on_select_press (int n_press, double canvas_x, double canvas_y)
@@ -406,16 +397,6 @@ namespace Planly
                 return;
             }
 
-            if (active == null) return;
-            active.on_mouse_released (canvas_x, canvas_y);
-            if (has_dragged && active.is_valid ()) {
-                shapes += active;
-                rebuild_cache ();
-            }
-            active      = null;
-            has_dragged = false;
-            queue_draw ();
-            metrics_updated ("", "", "");
         }
 
         // ── on_motion ─────────────────────────────────────────────────────
@@ -473,16 +454,6 @@ namespace Planly
                 return;
             }
 
-            if (active == null) return;
-            active.on_mouse_dragged (canvas_x, canvas_y);
-            has_dragged = true;
-            if (active.has_started ()) {
-                metrics_updated (
-                    active.get_size_px (),
-                    active.get_size_m (),
-                    active.get_area_m2 ()
-                    );
-            }
         }
 
         // ── Lógica WALL ───────────────────────────────────────────────────
@@ -1089,7 +1060,6 @@ namespace Planly
                 if (keyval == '0')                  { zoom_reset (); return true; }
             }
 
-            if (active != null)           active.on_key_pressed (keyval);
             if (wall_being_drawn != null) wall_being_drawn.on_key_pressed (keyval);
             return false;
         }
@@ -1099,7 +1069,6 @@ namespace Planly
             if (keyval == Gdk.Key.Shift_L || keyval == Gdk.Key.Shift_R) {
                 is_shift_pressed = false;
             }
-            if (active != null)           active.on_key_released (keyval);
             if (wall_being_drawn != null) wall_being_drawn.on_key_released (keyval);
         }
 
@@ -1112,22 +1081,6 @@ namespace Planly
             if (dy < 0) zoom_in ();
             else if (dy > 0) zoom_out ();
             return true;
-        }
-
-        // ── Fábrica de figuras (drag-based) ───────────────────────────────
-
-        private Shape? create_shape ()
-        {
-            switch (active_tool) {
-            case ToolType.COLUMN:    return new Rect ();
-            case ToolType.BULB:      return new Circle ();
-            case ToolType.OUTLET:    return new Circle ();
-            case ToolType.DOOR:      return new Circle ();
-            case ToolType.WINDOW:    return new Circle ();
-            case ToolType.FAUCET:    return new Circle ();
-            case ToolType.FURNITURE: return new Circle ();
-            default:                 return null;
-            }
         }
 
         // ── Helpers internos ──────────────────────────────────────────────
@@ -1154,7 +1107,6 @@ namespace Planly
             cr.paint ();
 
             if (wall_being_drawn != null)                wall_being_drawn.paint (cr);
-            if (active != null && active.has_started ()) active.paint (cr);
 
             // Overlay de transformación sólo en modo TRANSFORM
             if (selected_shape != null && selection_mode == 1) draw_selection_overlay (cr);

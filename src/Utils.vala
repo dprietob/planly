@@ -20,7 +20,7 @@ namespace Planly
 
         /**
          * Ajusta un ángulo (en grados) al múltiplo de 45° más cercano.
-         * Centraliza la lógica FLATTEN usada por Line y Wall.
+         * Centraliza la lógica FLATTEN usada por Wall.
          */
         public static double snap_angle_to_cardinal(double deg)
         {

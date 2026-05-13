@@ -16,11 +16,8 @@ planly_sources = files(
   # ── Herramientas ──────────────────────────────────────────────────────
   'gui/ToolType.vala',
   'gui/Window.vala',
-  'gui/components/Circle.vala',
   # ── Componentes dibujables ─────────────────────────────────────────────
   'gui/components/Drawable.vala',
-  'gui/components/Line.vala',
-  'gui/components/Rect.vala',
   'gui/components/Shape.vala',
   'gui/components/Wall.vala',
   # ── Proyecto ──────────────────────────────────────────────────────────
