@@ -16,11 +16,19 @@ namespace Planly
      */
     public class Wall : Shape
     {
-        private const double SNAP_RADIUS  = 15.0;
-        private const double HANDLE_RADIUS =  5.0;
-        private const double BEZ_HANDLE_R  =  4.5;
-        private const double WALL_LINE_W   =  3.0;
-        private const double MIN_SEG_LEN   =  4.0;
+        private const double SNAP_RADIUS              = 15.0;
+        private const double HANDLE_RADIUS            =  5.0;
+        private const double BEZ_HANDLE_R             =  4.5;
+        private const double WALL_LINE_W              =  3.0;
+        private const double MIN_SEG_LEN              =  4.0;
+
+        // Bézier: número de puntos de muestreo para distintos cálculos
+        private const int    BEZ_OUTLINE_SAMPLES      =  6;   // detección de colisión
+        private const int    ARC_LENGTH_SAMPLES       = 20;   // longitud de arco
+
+        // Bézier: longitud inicial de los handles al activarse (toggle)
+        private const double BEZ_HANDLE_FRAC          =  3.0; // divisor: len_media / 3
+        private const double BEZ_HANDLE_DEFAULT_LEN   = 40.0; // fallback si no hay vecinos
 
         // ── Geometría ─────────────────────────────────────────────────────
         private double[] _vx = {};
@@ -351,7 +359,7 @@ namespace Planly
                     double d=Math.sqrt((_vx[next]-_vx[idx])*(_vx[next]-_vx[idx])+(_vy[next]-_vy[idx])*
                             (_vy[next]-_vy[idx])); total+=d; cnt++;
                 }
-                double len=(cnt>0) ? (total/cnt)/3.0 : 40.0;
+                double len = (cnt > 0) ? (total / cnt) / BEZ_HANDLE_FRAC : BEZ_HANDLE_DEFAULT_LEN;
                 _cp_ox[idx]=_vx[idx]+tx*len; _cp_oy[idx]=_vy[idx]+ty*len;
                 _cp_ix[idx]=_vx[idx]-tx*len; _cp_iy[idx]=_vy[idx]-ty*len;
             }
@@ -537,7 +545,7 @@ namespace Planly
                     double p1y = _bez_out[i] ? _cp_oy[i]  : p0y;
                     double p2x = _bez_in[to] ? _cp_ix[to] : p3x;
                     double p2y = _bez_in[to] ? _cp_iy[to] : p3y;
-                    const int N = 6;
+                    const int N = BEZ_OUTLINE_SAMPLES;
                     for (int k = 1; k <= N; k++) {
                         double t = (double)k / N, mt = 1.0 - t;
                         px += mt*mt*mt*p0x + 3*mt*mt*t*p1x + 3*mt*t*t*p2x + t*t*t*p3x;
@@ -602,25 +610,14 @@ namespace Planly
         // ── Cálculos internos ─────────────────────────────────────────────
 
         private void flatten_point(double mx, double my, double ox, double oy,
-            out double rx, out double ry)
+                                    out double rx, out double ry)
         {
-            double dx=mx-ox, dy=my-oy, len=Math.sqrt(dx*dx+dy*dy);
-            if (len<1.0) {
-                rx=ox; ry=oy; return;
-            }
-            double deg=Math.atan2(dy, dx)*180.0/Math.PI;
-            if (deg<0) deg+=360.0;
-            double snap;
-            if      (deg>=23  && deg<68)  snap=45.0;
-            else if (deg>=68  && deg<113) snap=90.0;
-            else if (deg>=113 && deg<158) snap=135.0;
-            else if (deg>=158 && deg<203) snap=180.0;
-            else if (deg>=203 && deg<248) snap=225.0;
-            else if (deg>=248 && deg<293) snap=270.0;
-            else if (deg>=293 && deg<338) snap=315.0;
-            else snap=0.0;
-            double rad=snap*Math.PI/180.0;
-            rx=ox+len*Math.cos(rad); ry=oy+len*Math.sin(rad);
+            double dx = mx - ox, dy = my - oy;
+            double len = Math.sqrt(dx*dx + dy*dy);
+            if (len < 1.0) { rx = ox; ry = oy; return; }
+            double rad = Utils.snap_angle_deg(Math.atan2(dy, dx) * 180.0 / Math.PI) * Math.PI / 180.0;
+            rx = ox + len * Math.cos(rad);
+            ry = oy + len * Math.sin(rad);
         }
 
         private void update_metrics()
@@ -660,7 +657,7 @@ namespace Planly
             double p2x, double p2y,
             double p3x, double p3y)
         {
-            const int N = 20;
+            const int N = ARC_LENGTH_SAMPLES;
             double len=0.0, px=p0x, py=p0y;
             for (int i = 1; i <= N; i++) {
                 double t=(double)i/N, mt=1.0-t;
@@ -731,17 +728,6 @@ namespace Planly
             return Math.sqrt((px-ex)*(px-ex)+(py-ey)*(py-ey))<=tol;
         }
 
-        public override void on_mouse_pressed(double x, double y)
-        {
-        }
-
-        public override void on_mouse_dragged(double x, double y)
-        {
-        }
-
-        public override void on_mouse_released(double x, double y)
-        {
-        }
 
         public override bool is_valid()
         {

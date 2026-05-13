@@ -213,13 +213,17 @@ namespace Planly
         /** Puntos de anclaje Y para el snapping de vértices con Shift. */
         public virtual double[] get_snap_ys () { return {}; }
 
-        // Metodos abstractos
+        // Métodos abstractos de geometría y renderizado
         public abstract void           paint(Cairo.Context cr);
         public abstract bool           contains_point(double x, double y);
         public abstract MetricLine[]   get_metrics();
         public abstract bool           is_valid();
-        public abstract void           on_mouse_pressed(double x, double y);
-        public abstract void           on_mouse_released(double x, double y);
-        public abstract void           on_mouse_dragged(double x, double y);
+
+        // Interacción de ratón — virtuales con cuerpo vacío (ISP):
+        // las subclases que necesiten interacción las sobreescriben;
+        // las que no (ej. Wall) heredan la implementación vacía.
+        public virtual void on_mouse_pressed  (double x, double y) {}
+        public virtual void on_mouse_released (double x, double y) {}
+        public virtual void on_mouse_dragged  (double x, double y) {}
     }
 }

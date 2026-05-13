@@ -4,9 +4,9 @@ namespace Planly
     {
         public const string NEW_DOC = "new-doc";
         public const string OPEN_DOC = "open-doc";
-        public const string SAVE_DOC = "open-doc";
-        public const string EXPORT_DOC = "open-doc";
-        public const string RENDER_DOC = "open-doc";
+        public const string SAVE_DOC = "save-doc";
+        public const string EXPORT_DOC = "export-doc";
+        public const string RENDER_DOC = "render-doc";
         public const string SETTINGS = "preferences";
         public const string SHORTCUTS = "shortcuts";
         public const string ABOUT = "about";

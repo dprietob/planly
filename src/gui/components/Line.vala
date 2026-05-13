@@ -55,30 +55,10 @@ namespace Planly
          */
         private void apply_flatten()
         {
-            double deg = compute_degrees();
             double len = compute_length_in_pixels();
-
-            if (deg >= 23 && deg < 68) {
-                end_x = start_x + len * Math.cos(45.0 * Math.PI / 180.0);
-                end_y = start_y + len * Math.sin(45.0 * Math.PI / 180.0);
-            } else if (deg >= 68 && deg < 113) {
-                end_x = start_x;
-            } else if (deg >= 113 && deg < 158) {
-                end_x = start_x + len * Math.cos(135.0 * Math.PI / 180.0);
-                end_y = start_y + len * Math.sin(135.0 * Math.PI / 180.0);
-            } else if (deg >= 158 && deg < 203) {
-                end_y = start_y;
-            } else if (deg >= 203 && deg < 248) {
-                end_x = start_x + len * Math.cos(225.0 * Math.PI / 180.0);
-                end_y = start_y + len * Math.sin(225.0 * Math.PI / 180.0);
-            } else if (deg >= 248 && deg < 293) {
-                end_x = start_x;
-            } else if (deg >= 293 && deg < 335) {
-                end_x = start_x + len * Math.cos(315.0 * Math.PI / 180.0);
-                end_y = start_y + len * Math.sin(315.0 * Math.PI / 180.0);
-            } else {
-                end_y = start_y;
-            }
+            double rad = Utils.snap_angle_deg(compute_degrees()) * Math.PI / 180.0;
+            end_x = start_x + len * Math.cos(rad);
+            end_y = start_y + len * Math.sin(rad);
         }
 
         // ── Drawable ───────────────────────────────────────────────────────

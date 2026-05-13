@@ -232,124 +232,50 @@ namespace Planly
 
         private void on_select_press (int n_press, double cx, double cy)
         {
-            // ── Doble clic ────────────────────────────────────────────────
             if (n_press == 2) {
-                // Modo vértices + doble clic
-                if (sel_mode == 2 && sel_shape is Wall) {
-                    var wall = (Wall) sel_shape;
-                    int vi = wall.find_vertex (cx, cy);
-                    if (vi >= 0) {
-                        // Doble clic en vértice → activar/desactivar handles Bézier
-                        sel_interact = 0;
-                        wall.toggle_bezier (vi);
-                        rebuild_cache ();
-                        queue_draw ();
-                        return;
-                    }
-                    // Doble clic en segmento → insertar vértice nuevo
-                    if (!wall.has_handle_at (cx, cy)) {
-                        double proj_x, proj_y;
-                        int seg = wall.find_segment_at (cx, cy, 10.0, out proj_x, out proj_y);
-                        if (seg >= 0) {
-                            int new_idx   = wall.insert_vertex (seg, proj_x, proj_y);
-                            vert_drag_idx = new_idx;
-                            sel_interact  = 4;
-                            sel_press_x   = proj_x;
-                            sel_press_y   = proj_y;
-                            rebuild_cache ();
-                            queue_draw ();
-                            return;
-                        }
-                    }
-                }
+                handle_select_double_click (cx, cy);
+            } else {
+                handle_select_single_click (cx, cy);
+            }
+        }
 
-                if (sel_shape != null &&
-                    (sel_shape.contains_point (cx, cy) ||
-                     sel_shape.has_handle_at (cx, cy))) {
-                    // Doble clic sobre la figura seleccionada → modo vértices
-                    sel_interact = 0; // cancelar el movimiento que inició n_press=1
-                    enter_vertex_mode ();
-                } else {
-                    // Doble clic sobre otra figura → seleccionar en transform
-                    Shape? hit = hit_shape (cx, cy);
-                    if (hit != null && hit != sel_shape) {
-                        do_select (hit);
-                        enter_transform_mode ();
-                    }
-                }
-                return;
+        private void handle_select_double_click (double cx, double cy)
+        {
+            if (sel_mode == 2 && sel_shape is Wall) {
+                if (try_toggle_bezier_on_vertex (cx, cy)) return;
+                if (try_insert_vertex_on_segment (cx, cy)) return;
             }
 
-            // ── Clic simple ───────────────────────────────────────────────
+            if (sel_shape != null &&
+                (sel_shape.contains_point (cx, cy) || sel_shape.has_handle_at (cx, cy))) {
+                sel_interact = 0;
+                enter_vertex_mode ();
+            } else {
+                Shape? hit = hit_shape (cx, cy);
+                if (hit != null && hit != sel_shape) {
+                    do_select (hit);
+                    enter_transform_mode ();
+                }
+            }
+        }
 
-            // Modo vértices activo
+        private void handle_select_single_click (double cx, double cy)
+        {
             if (sel_mode == 2 && sel_shape != null) {
                 if (sel_shape is Wall) {
-                    var wall_v = (Wall) sel_shape;
-
-                    // 1. Comprobar handle Bézier (prioridad sobre vértice)
-                    bool biz_out;
-                    int biz = wall_v.find_bezier_handle (cx, cy, out biz_out);
-                    if (biz >= 0) {
-                        bezier_vert_idx = biz;
-                        bezier_is_out   = biz_out;
-                        sel_interact    = 5;
-                        sel_press_x     = cx;
-                        sel_press_y     = cy;
-                        take_transform_snapshot ();
-                        return;
-                    }
-
-                    // 2. Comprobar vértice
-                    int vi = wall_v.find_vertex (cx, cy);
-                    if (vi >= 0) {
-                        sel_vertex_idx         = vi;
-                        wall_v.selected_vertex = vi;
-                        vert_drag_idx          = vi;
-                        sel_interact           = 4;
-                        sel_press_x            = cx;
-                        sel_press_y            = cy;
-                        take_transform_snapshot ();
-                        rebuild_cache ();
-                        queue_draw ();
-                        return;
-                    }
+                    if (try_start_bezier_drag (cx, cy)) return;
+                    if (try_start_vertex_drag (cx, cy)) return;
                 }
-                // Clic en el cuerpo (no en vértice) → no cambia de modo;
-                // el doble clic sobre el segmento insertará un vértice nuevo
-                if (sel_shape.contains_point (cx, cy)) {
-                    return;
-                }
-                // Clic fuera → hit-test general
+                if (sel_shape.contains_point (cx, cy)) return;
             }
 
-            // Modo transform: comprobar handles de la figura seleccionada
             if (sel_mode == 1 && sel_shape != null) {
-                var b  = sel_shape.get_bbox ();
-                double rx = b.x + b.w / 2.0;
-                double ry = b.y - ROT_DIST;
-
-                // Handle de rotación
-                if (dist2 (cx, cy, rx, ry) <= (TH_SIZE + 3) * (TH_SIZE + 3)) {
-                    sel_interact   = 3;
-                    sel_press_x    = cx;
-                    sel_press_y    = cy;
-                    rot_cx         = b.x + b.w / 2.0;
-                    rot_cy         = b.y + b.h / 2.0;
-                    rot_orig_angle = Math.atan2 (cy - rot_cy, cx - rot_cx);
-                    take_transform_snapshot ();
-                    return;
-                }
-
-                // Handles de redimensionado
+                if (try_start_rotation (cx, cy)) return;
+                var b = sel_shape.get_bbox ();
                 int h = hit_resize_handle (b, cx, cy);
-                if (h >= 0) {
-                    start_resize (h, b, cx, cy);
-                    return;
-                }
+                if (h >= 0) { start_resize (h, b, cx, cy); return; }
             }
 
-            // Hit-test general → seleccionar + iniciar movimiento
             Shape? hit = hit_shape (cx, cy);
             do_select (hit);
             if (hit != null) {
@@ -363,6 +289,89 @@ namespace Planly
                 sel_interact = 0;
                 metrics_updated ("", "", "");
             }
+        }
+
+        // ── Helpers de on_select_press ────────────────────────────────────
+
+        /** Activa/desactiva Bézier en el vértice bajo (cx,cy). Devuelve true si actuó. */
+        private bool try_toggle_bezier_on_vertex (double cx, double cy)
+        {
+            var wall = (Wall) sel_shape;
+            int vi = wall.find_vertex (cx, cy);
+            if (vi < 0) return false;
+            sel_interact = 0;
+            wall.toggle_bezier (vi);
+            rebuild_cache ();
+            queue_draw ();
+            return true;
+        }
+
+        /** Inserta un vértice en el segmento bajo (cx,cy). Devuelve true si actuó. */
+        private bool try_insert_vertex_on_segment (double cx, double cy)
+        {
+            var wall = (Wall) sel_shape;
+            if (wall.has_handle_at (cx, cy)) return false;
+            double proj_x, proj_y;
+            int seg = wall.find_segment_at (cx, cy, 10.0, out proj_x, out proj_y);
+            if (seg < 0) return false;
+            int new_idx   = wall.insert_vertex (seg, proj_x, proj_y);
+            vert_drag_idx = new_idx;
+            sel_interact  = 4;
+            sel_press_x   = proj_x;
+            sel_press_y   = proj_y;
+            rebuild_cache ();
+            queue_draw ();
+            return true;
+        }
+
+        /** Inicia arrastre de un handle Bézier. Devuelve true si actuó. */
+        private bool try_start_bezier_drag (double cx, double cy)
+        {
+            bool biz_out;
+            int biz = ((Wall) sel_shape).find_bezier_handle (cx, cy, out biz_out);
+            if (biz < 0) return false;
+            bezier_vert_idx = biz;
+            bezier_is_out   = biz_out;
+            sel_interact    = 5;
+            sel_press_x     = cx;
+            sel_press_y     = cy;
+            take_transform_snapshot ();
+            return true;
+        }
+
+        /** Selecciona un vértice e inicia su arrastre. Devuelve true si actuó. */
+        private bool try_start_vertex_drag (double cx, double cy)
+        {
+            var wall = (Wall) sel_shape;
+            int vi = wall.find_vertex (cx, cy);
+            if (vi < 0) return false;
+            sel_vertex_idx         = vi;
+            wall.selected_vertex   = vi;
+            vert_drag_idx          = vi;
+            sel_interact           = 4;
+            sel_press_x            = cx;
+            sel_press_y            = cy;
+            take_transform_snapshot ();
+            rebuild_cache ();
+            queue_draw ();
+            return true;
+        }
+
+        /** Inicia rotación si el cursor está sobre el handle de rotación. Devuelve true si actuó. */
+        private bool try_start_rotation (double cx, double cy)
+        {
+            var b = sel_shape.get_bbox ();
+            double rx = b.x + b.w / 2.0;
+            double ry = b.y - ROT_DIST;
+            if (dist2 (cx, cy, rx, ry) > (TH_SIZE + 3) * (TH_SIZE + 3)) return false;
+            sel_interact   = 3;
+            sel_press_x    = cx;
+            sel_press_y    = cy;
+            rot_cx         = b.x + b.w / 2.0;
+            rot_cy         = b.y + b.h / 2.0;
+            rot_orig_angle = Math.atan2 (cy - rot_cy, cx - rot_cx);
+            take_transform_snapshot ();
+            return true;
         }
 
         // ── on_released ───────────────────────────────────────────────────
@@ -470,129 +479,130 @@ namespace Planly
 
         private void handle_wall_click (int n_press, double cx, double cy)
         {
-            // ── Doble clic ────────────────────────────────────────────────
             if (n_press == 2) {
-                if (wall_active == null) return;
+                handle_wall_double_click (cx, cy);
+            } else {
+                handle_wall_single_click (cx, cy);
+            }
+        }
 
-                // Deshacer el vértice que n_press=1 pudo haber añadido
-                if (wall_v_added) {
-                    wall_active.remove_last_vertex ();
-                    wall_v_added = false;
-                }
+        private void handle_wall_double_click (double cx, double cy)
+        {
+            if (wall_active == null) return;
 
-                if (wall_active.near_first_vertex (cx, cy)) {
-                    // ── Cerca del primer vértice ──────────────────────────
-                    int nv = wall_active.vertex_count;
-                    double lx = wall_active.get_vertex_x (nv - 1);
-                    double ly = wall_active.get_vertex_y (nv - 1);
-                    double fx = wall_active.get_vertex_x (0);
-                    double fy = wall_active.get_vertex_y (0);
-                    if (!would_block_drawing (lx, ly, fx, fy) &&
-                        !would_enclose_existing (wall_active) &&
-                        !wall_active.new_segment_crosses_self (lx, ly, fx, fy, nv - 1, true)) {
-                        wall_active.close ();
-                    } else {
-                        // Bloqueado → cancelar (igual que Escape)
-                        wall_active = null;
-                        queue_draw ();
-                        metrics_updated ("", "", "");
-                        return;
-                    }
-
-                } else if (wall_active.vertex_count >= 2) {
-                    // ── Lejos del primer vértice: trazar recta a V0 ───────
-                    int nv = wall_active.vertex_count;
-                    double lx = wall_active.get_vertex_x (nv - 1);
-                    double ly = wall_active.get_vertex_y (nv - 1);
-                    double fx = wall_active.get_vertex_x (0);
-                    double fy = wall_active.get_vertex_y (0);
-
-                    bool ok = !would_block_drawing (lx, ly, cx, cy) &&
-                              !would_block_drawing (cx, cy, fx, fy) &&
-                              !wall_active.new_segment_crosses_self (lx, ly, cx, cy, nv - 1);
-
-                    if (ok) {
-                        // Comprobar encierro y auto-cruce del tramo de cierre
-                        wall_active.add_vertex (cx, cy);
-                        int nv2 = wall_active.vertex_count;
-                        double lx2 = wall_active.get_vertex_x (nv2 - 1);
-                        double ly2 = wall_active.get_vertex_y (nv2 - 1);
-                        if (would_enclose_existing (wall_active) ||
-                            wall_active.new_segment_crosses_self (lx2, ly2, fx, fy, nv2 - 1, true)) {
-                            wall_active.remove_last_vertex ();
-                            ok = false;
-                        }
-                    }
-
-                    if (ok) {
-                        // (cx,cy) ya fue añadido; cerrar el polígono
-                        wall_active.close ();
-                    } else {
-                        // Bloqueado → forzar al usuario a usar el punto verde o Escape
-                        queue_draw ();
-                        return;
-                    }
-
-                } else {
-                    // Menos de 2 vértices: cancelar
-                    wall_active = null;
-                    queue_draw ();
-                    metrics_updated ("", "", "");
-                    return;
-                }
-
-                shapes += wall_active;
-                rebuild_cache ();
-                wall_active = null;
-                queue_draw ();
-                metrics_updated ("", "", "");
-                return;
+            if (wall_v_added) {
+                wall_active.remove_last_vertex ();
+                wall_v_added = false;
             }
 
-            // ── Clic simple (n_press == 1) ────────────────────────────────
+            if (wall_active.near_first_vertex (cx, cy)) {
+                if (closing_segment_is_valid ()) {
+                    wall_active.close ();
+                    commit_wall ();
+                } else {
+                    cancel_wall ();
+                }
+            } else if (wall_active.vertex_count >= 2) {
+                if (try_close_wall_via_point (cx, cy)) {
+                    commit_wall ();
+                } else {
+                    queue_draw (); // el usuario debe usar el punto verde o Escape
+                }
+            } else {
+                cancel_wall ();
+            }
+        }
+
+        private void handle_wall_single_click (double cx, double cy)
+        {
             wall_v_added = false;
 
             if (wall_active == null) {
-                if (would_block_drawing (cx, cy, cx, cy)) {
-                    queue_draw ();
-                    return;
+                if (!would_block_drawing (cx, cy, cx, cy)) {
+                    wall_active = new Wall ();
+                    wall_active.start_draw (cx, cy);
                 }
-                wall_active = new Wall ();
-                wall_active.start_draw (cx, cy);
-
             } else if (wall_active.near_first_vertex (cx, cy)) {
-                // Cierre con clic en el círculo verde
-                int nv = wall_active.vertex_count;
-                double lx = wall_active.get_vertex_x (nv - 1);
-                double ly = wall_active.get_vertex_y (nv - 1);
-                double fx = wall_active.get_vertex_x (0);
-                double fy = wall_active.get_vertex_y (0);
-                if (would_block_drawing (lx, ly, fx, fy) ||
-                    would_enclose_existing (wall_active) ||
-                    wall_active.new_segment_crosses_self (lx, ly, fx, fy, nv - 1, true)) {
-                    queue_draw ();
+                if (closing_segment_is_valid ()) {
+                    wall_active.close ();
+                    commit_wall ();
                     return;
                 }
-                wall_active.close ();
-                shapes += wall_active;
-                rebuild_cache ();
-                wall_active = null;
-                metrics_updated ("", "", "");
-
             } else {
-                // Nuevo vértice intermedio
-                int nv = wall_active.vertex_count;
+                int    nv = wall_active.vertex_count;
                 double lx = wall_active.get_vertex_x (nv - 1);
                 double ly = wall_active.get_vertex_y (nv - 1);
-                if (would_block_drawing (lx, ly, cx, cy) ||
-                    wall_active.new_segment_crosses_self (lx, ly, cx, cy, nv - 1)) {
-                    queue_draw ();
-                    return;
+                if (!would_block_drawing (lx, ly, cx, cy) &&
+                    !wall_active.new_segment_crosses_self (lx, ly, cx, cy, nv - 1)) {
+                    wall_active.add_vertex (cx, cy);
+                    wall_v_added = true;
                 }
-                wall_active.add_vertex (cx, cy);
-                wall_v_added = true;
             }
             queue_draw ();
+        }
+
+        /** True si el tramo V(n-1)→V0 es dibujable (sin colisión ni auto-cruce). */
+        private bool closing_segment_is_valid ()
+        {
+            int    nv = wall_active.vertex_count;
+            double lx = wall_active.get_vertex_x (nv - 1);
+            double ly = wall_active.get_vertex_y (nv - 1);
+            double fx = wall_active.get_vertex_x (0);
+            double fy = wall_active.get_vertex_y (0);
+            return !would_block_drawing (lx, ly, fx, fy) &&
+                   !would_enclose_existing (wall_active) &&
+                   !wall_active.new_segment_crosses_self (lx, ly, fx, fy, nv - 1, true);
+        }
+
+        /**
+         * Intenta cerrar el muro añadiendo (cx,cy) antes del V0.
+         * Devuelve true si el cierre es válido (y el vértice ya está añadido).
+         */
+        private bool try_close_wall_via_point (double cx, double cy)
+        {
+            int    nv = wall_active.vertex_count;
+            double lx = wall_active.get_vertex_x (nv - 1);
+            double ly = wall_active.get_vertex_y (nv - 1);
+            double fx = wall_active.get_vertex_x (0);
+            double fy = wall_active.get_vertex_y (0);
+
+            if (would_block_drawing (lx, ly, cx, cy) ||
+                would_block_drawing (cx, cy, fx, fy) ||
+                wall_active.new_segment_crosses_self (lx, ly, cx, cy, nv - 1)) {
+                return false;
+            }
+
+            wall_active.add_vertex (cx, cy);
+            int nv2 = wall_active.vertex_count;
+            if (would_enclose_existing (wall_active) ||
+                wall_active.new_segment_crosses_self (
+                    wall_active.get_vertex_x (nv2 - 1),
+                    wall_active.get_vertex_y (nv2 - 1),
+                    fx, fy, nv2 - 1, true)) {
+                wall_active.remove_last_vertex ();
+                return false;
+            }
+
+            wall_active.close ();
+            return true;
+        }
+
+        /** Guarda el muro activo en el canvas y limpia el estado de dibujo. */
+        private void commit_wall ()
+        {
+            shapes += wall_active;
+            rebuild_cache ();
+            wall_active = null;
+            queue_draw ();
+            metrics_updated ("", "", "");
+        }
+
+        /** Descarta el muro activo sin guardarlo. */
+        private void cancel_wall ()
+        {
+            wall_active = null;
+            queue_draw ();
+            metrics_updated ("", "", "");
         }
 
         // ── Transformaciones SELECT ───────────────────────────────────────
