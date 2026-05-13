@@ -5,310 +5,764 @@ namespace Planly
      *
      * Zoom
      * ────
-     * Se mantiene zoom_level (factor real, 1.0 = 100 %).  En draw_func se
-     * aplica cr.scale(zoom, zoom) para escalar todo el contenido.  Los
-     * eventos de ratón llegan en coordenadas de widget; se dividen por
-     * zoom_level antes de pasarlos a las figuras, que siempre trabajan en
-     * coordenadas lógicas (espacio del plano a escala 1:1).
+     * zoom_level (factor real, 1.0 = 100%).  En draw_func se aplica
+     * cr.scale(zoom, zoom).  Los eventos de ratón se dividen por zoom_level
+     * antes de pasarlos a las figuras (coordenadas lógicas del plano).
      *
-     * Entradas de zoom:
-     *   • Ctrl + rueda del ratón   → zoom_in / zoom_out
-     *   • Ctrl + = / +             → zoom_in
-     *   • Ctrl + -                 → zoom_out
-     *   • Ctrl + 0                 → zoom_reset
-     *   • zoom_in() / zoom_out() / zoom_reset()  (llamados desde StatusBar)
+     * Herramienta WALL — modelo clic-a-clic
+     * ──────────────────────────────────────
+     *   Clic            → colocar vértice / iniciar muro
+     *   Movimiento      → previsualización del segmento
+     *   Doble clic      → finalizar muro (abierto)
+     *   Doble clic cerca del origen → cerrar polígono
+     *   Escape          → cancelar
+     *
+     * Herramienta SELECT — dos modos de edición
+     * ──────────────────────────────────────────
+     *   MODO TRANSFORM  (clic simple sobre figura)
+     *     Arrastrar cuerpo   → mover
+     *     Arrastrar esquina  → redimensionar
+     *     Arrastrar ⟳        → rotar
+     *
+     *   MODO VÉRTICES   (doble clic sobre figura)
+     *     Arrastrar vértice  → mover vértice
+     *     Shift vertical     → snap X al vértice más cercano
+     *     Shift horizontal   → snap Y al vértice más cercano
+     *     Clic en cuerpo     → volver a MODO TRANSFORM
+     *     Escape             → volver a MODO TRANSFORM
+     *
+     *   Clic en vacío → deseleccionar
      */
     public class Scene : Gtk.DrawingArea
     {
-        // Zoom
+        // ── Zoom ──────────────────────────────────────────────────────────
         private const double ZOOM_STEP = 1.25;
         private const double ZOOM_MIN  = 0.1;
         private const double ZOOM_MAX  = 8.0;
         private double zoom_level = 1.0;
 
-        // Estado de dibujo
+        // ── Figuras y dibujo drag-based ───────────────────────────────────
         private Shape[]  shapes      = {};
         private Shape?   active      = null;
-        private bool has_dragged = false;
+        private bool     has_dragged = false;
         private ToolType active_tool = ToolType.SELECT;
 
-        // Cache Cairo
+        // ── Muro en curso (clic-a-clic) ───────────────────────────────────
+        private Wall? wall_active = null;
+
+        // ── Selección ─────────────────────────────────────────────────────
+        private Shape? sel_shape = null;
+
+        /**
+         * Modo de edición de la figura seleccionada:
+         *   0 = ninguna selección
+         *   1 = TRANSFORM (bbox + handles de esquina/rotación)
+         *   2 = VÉRTICES  (handles de vértice, sin bbox)
+         */
+        private int sel_mode = 0;
+
+        // Interacción activa: 0=ninguna 1=mover 2=resize 3=rotar 4=vértice
+        private int    sel_interact  = 0;
+        private double sel_press_x   = 0.0;
+        private double sel_press_y   = 0.0;
+
+        // Resize
+        private int      resize_corner   = -1;
+        private double   resize_anchor_x = 0.0;
+        private double   resize_anchor_y = 0.0;
+        private double   resize_orig_w   = 0.0;
+        private double   resize_orig_h   = 0.0;
+        private double[] resize_snap_vx  = {};
+        private double[] resize_snap_vy  = {};
+
+        // Rotación
+        private double   rot_cx         = 0.0;
+        private double   rot_cy         = 0.0;
+        private double   rot_orig_angle = 0.0;
+        private double[] rot_snap_vx    = {};
+        private double[] rot_snap_vy    = {};
+
+        // Vértice arrastrado
+        private int vert_drag_idx = -1;
+
+        // Shift para snapping
+        private bool shift_pressed = false;
+
+        // ── Handles de transformación ─────────────────────────────────────
+        private const double TH_SIZE  = 5.0;
+        private const double ROT_DIST = 28.0;
+
+        // ── Cache Cairo ───────────────────────────────────────────────────
         private Cairo.ImageSurface cache_surface;
-        private Cairo.Context cache_cr;
+        private Cairo.Context      cache_cr;
 
-        // Controlador de scroll (guardado para poder leer el estado de modificadores)
+        // ── Controladores de eventos ──────────────────────────────────────
         private Gtk.EventControllerScroll scroll_ctrl;
+        private Gtk.EventControllerMotion motion_ctrl;
 
-        // Señales
-        public signal void metrics_updated(string size_px, string size_m, string area_m2);
-        public signal void zoom_changed(double level);
-        public signal void tool_changed(ToolType tool);
+        // ── Señales ───────────────────────────────────────────────────────
+        public signal void metrics_updated (string size_px, string size_m, string area_m2);
+        public signal void zoom_changed    (double level);
+        public signal void tool_changed    (ToolType tool);
 
         // ──────────────────────────────────────────────────────────────────
         construct {
-            cache_surface = new Cairo.ImageSurface(
+            cache_surface = new Cairo.ImageSurface (
                 Cairo.Format.ARGB32, WINDOW_WIDTH, WINDOW_HEIGHT
                 );
-            cache_cr = new Cairo.Context(cache_surface);
-            clear_cache_to_white();
+            cache_cr = new Cairo.Context (cache_surface);
+            clear_cache_to_white ();
 
-            set_focusable(true);
-            update_size_request();
+            set_focusable (true);
+            update_size_request ();
+            set_draw_func (draw_func);
+            setup_controllers ();
 
-            set_draw_func(draw_func);
-            setup_controllers();
-
-            // Temporizador ~60 fps: repinta solo si hay una figura activa
-            GLib.Timeout.add(16, () => {
-                if (active != null) {
-                    queue_draw();
-                }
+            GLib.Timeout.add (16, () => {
+                if (active != null || wall_active != null) queue_draw ();
                 return GLib.Source.CONTINUE;
             });
         }
 
-        // API publica: herramienta
+        // ── API pública ───────────────────────────────────────────────────
 
-        public void set_tool(ToolType tool)
+        public void set_tool (ToolType tool)
         {
-            active_tool = tool;
-            if (active != null) {
-                active = null;
-                queue_draw();
-            }
+            active_tool  = tool;
+            active       = null;
+            wall_active  = null;
+            sel_interact = 0;
+            queue_draw ();
         }
 
-        // API publica: zoom
-
-        public void zoom_in()
+        public void zoom_in ()
         {
-            zoom_level = double.min(zoom_level * ZOOM_STEP, ZOOM_MAX);
-            update_size_request();
-            queue_draw();
-            zoom_changed(zoom_level);
+            zoom_level = double.min (zoom_level * ZOOM_STEP, ZOOM_MAX);
+            update_size_request (); queue_draw (); zoom_changed (zoom_level);
         }
 
-        public void zoom_out()
+        public void zoom_out ()
         {
-            zoom_level = double.max(zoom_level / ZOOM_STEP, ZOOM_MIN);
-            update_size_request();
-            queue_draw();
-            zoom_changed(zoom_level);
+            zoom_level = double.max (zoom_level / ZOOM_STEP, ZOOM_MIN);
+            update_size_request (); queue_draw (); zoom_changed (zoom_level);
         }
 
-        public void zoom_reset()
+        public void zoom_reset ()
         {
             zoom_level = 1.0;
-            update_size_request();
-            queue_draw();
-            zoom_changed(zoom_level);
+            update_size_request (); queue_draw (); zoom_changed (zoom_level);
         }
 
-        // Controladores de eventos
+        // ── Controladores ────────────────────────────────────────────────
 
-        private void setup_controllers()
+        private void setup_controllers ()
         {
-            var click = new Gtk.GestureClick();
-            click.set_button(Gdk.BUTTON_PRIMARY);
-            click.pressed.connect(on_pressed);
-            click.released.connect(on_released);
-            add_controller(click);
+            var click = new Gtk.GestureClick ();
+            click.set_button (Gdk.BUTTON_PRIMARY);
+            click.pressed.connect  (on_pressed);
+            click.released.connect (on_released);
+            add_controller (click);
 
-            var motion = new Gtk.EventControllerMotion();
-            motion.motion.connect(on_motion);
-            add_controller(motion);
+            motion_ctrl = new Gtk.EventControllerMotion ();
+            motion_ctrl.motion.connect (on_motion);
+            add_controller (motion_ctrl);
 
-            var key = new Gtk.EventControllerKey();
-            key.key_pressed.connect(on_key_pressed);
-            key.key_released.connect(on_key_released);
-            add_controller(key);
+            var key = new Gtk.EventControllerKey ();
+            key.key_pressed.connect  (on_key_pressed);
+            key.key_released.connect (on_key_released);
+            add_controller (key);
 
-            scroll_ctrl = new Gtk.EventControllerScroll(
+            scroll_ctrl = new Gtk.EventControllerScroll (
                 Gtk.EventControllerScrollFlags.VERTICAL
                 );
-            scroll_ctrl.set_propagation_phase(Gtk.PropagationPhase.CAPTURE);
-            scroll_ctrl.scroll.connect(on_scroll);
-            add_controller(scroll_ctrl);
+            scroll_ctrl.set_propagation_phase (Gtk.PropagationPhase.CAPTURE);
+            scroll_ctrl.scroll.connect (on_scroll);
+            add_controller (scroll_ctrl);
         }
 
-        // Convierte coordenada de widget a coordenada logica del plano
-        private double to_canvas(double widget_coord)
-        {
-            return widget_coord / zoom_level;
-        }
+        private double to_canvas (double wc) { return wc / zoom_level; }
 
-        private void on_pressed(int n_press, double x, double y)
+        // ── on_pressed ────────────────────────────────────────────────────
+
+        private void on_pressed (int n_press, double x, double y)
         {
-            grab_focus();
+            grab_focus ();
+            double cx = to_canvas (x);
+            double cy = to_canvas (y);
+
+            if (active_tool == ToolType.WALL) {
+                handle_wall_click (n_press, cx, cy);
+                return;
+            }
+
+            if (active_tool == ToolType.SELECT) {
+                on_select_press (n_press, cx, cy);
+                return;
+            }
+
             has_dragged = false;
+            active      = create_shape ();
+            if (active != null) active.on_mouse_pressed (cx, cy);
+        }
 
-            if (active_tool == ToolType.SELECT) return;
+        private void on_select_press (int n_press, double cx, double cy)
+        {
+            // ── Doble clic ────────────────────────────────────────────────
+            if (n_press == 2) {
+                if (sel_shape != null &&
+                    (sel_shape.contains_point (cx, cy) ||
+                     sel_shape.has_handle_at (cx, cy))) {
+                    // Doble clic sobre la figura seleccionada → modo vértices
+                    sel_interact = 0; // cancelar el movimiento que inició n_press=1
+                    enter_vertex_mode ();
+                } else {
+                    // Doble clic sobre otra figura → seleccionar en transform
+                    Shape? hit = hit_shape (cx, cy);
+                    if (hit != null && hit != sel_shape) {
+                        do_select (hit);
+                        enter_transform_mode ();
+                    }
+                }
+                return;
+            }
 
-            active = create_shape();
-            if (active != null) {
-                active.on_mouse_pressed(to_canvas(x), to_canvas(y));
+            // ── Clic simple ───────────────────────────────────────────────
+
+            // Modo vértices activo
+            if (sel_mode == 2 && sel_shape != null) {
+                if (sel_shape is Wall) {
+                    int vi = ((Wall) sel_shape).find_vertex (cx, cy);
+                    if (vi >= 0) {
+                        vert_drag_idx = vi;
+                        sel_interact  = 4;
+                        sel_press_x   = cx;
+                        sel_press_y   = cy;
+                        return;
+                    }
+                }
+                // Clic en el cuerpo de la figura (no en vértice) → transform
+                if (sel_shape.contains_point (cx, cy)) {
+                    enter_transform_mode ();
+                    sel_interact = 1;
+                    sel_press_x  = cx;
+                    sel_press_y  = cy;
+                    return;
+                }
+                // Clic fuera → hit-test general
+            }
+
+            // Modo transform: comprobar handles de la figura seleccionada
+            if (sel_mode == 1 && sel_shape != null) {
+                var b  = sel_shape.get_bbox ();
+                double rx = b.x + b.w / 2.0;
+                double ry = b.y - ROT_DIST;
+
+                // Handle de rotación
+                if (dist2 (cx, cy, rx, ry) <= (TH_SIZE + 3) * (TH_SIZE + 3)) {
+                    sel_interact   = 3;
+                    sel_press_x    = cx;
+                    sel_press_y    = cy;
+                    rot_cx         = b.x + b.w / 2.0;
+                    rot_cy         = b.y + b.h / 2.0;
+                    rot_orig_angle = Math.atan2 (cy - rot_cy, cx - rot_cx);
+                    take_snapshot_for_rot ();
+                    return;
+                }
+
+                // Handles de redimensionado
+                int h = hit_resize_handle (b, cx, cy);
+                if (h >= 0) {
+                    start_resize (h, b, cx, cy);
+                    return;
+                }
+            }
+
+            // Hit-test general → seleccionar + iniciar movimiento
+            Shape? hit = hit_shape (cx, cy);
+            do_select (hit);
+            if (hit != null) {
+                enter_transform_mode ();
+                sel_interact = 1;
+                sel_press_x  = cx;
+                sel_press_y  = cy;
+                metrics_updated (hit.get_size_px (), hit.get_size_m (), hit.get_area_m2 ());
+            } else {
+                sel_mode     = 0;
+                sel_interact = 0;
+                metrics_updated ("", "", "");
             }
         }
 
-        private void on_released(int n_press, double x, double y)
+        // ── on_released ───────────────────────────────────────────────────
+
+        private void on_released (int n_press, double x, double y)
         {
-            double cx = to_canvas(x);
-            double cy = to_canvas(y);
+            double cx = to_canvas (x);
+            double cy = to_canvas (y);
 
             if (active_tool == ToolType.SELECT) {
-                Shape? selected = null;
-                foreach (unowned var shape in shapes) {
-                    bool hit = shape.contains_point(cx, cy);
-                    shape.set_selected(hit);
-                    if (hit) selected = shape;
-                }
-                rebuild_cache();
-                queue_draw();
-
-                if (selected != null) {
-                    metrics_updated(
-                        selected.get_size_px(),
-                        selected.get_size_m(),
-                        selected.get_area_m2()
+                sel_interact  = 0;
+                resize_corner = -1;
+                vert_drag_idx = -1;
+                rebuild_cache ();
+                queue_draw ();
+                if (sel_shape != null) {
+                    metrics_updated (
+                        sel_shape.get_size_px (),
+                        sel_shape.get_size_m (),
+                        sel_shape.get_area_m2 ()
                         );
-                } else {
-                    metrics_updated("", "", "");
                 }
                 return;
             }
 
             if (active == null) return;
-
-            active.on_mouse_released(cx, cy);
-
-            if (has_dragged && active.is_valid()) {
+            active.on_mouse_released (cx, cy);
+            if (has_dragged && active.is_valid ()) {
                 shapes += active;
-                rebuild_cache();
+                rebuild_cache ();
             }
-
             active      = null;
             has_dragged = false;
-            queue_draw();
-            metrics_updated("", "", "");
+            queue_draw ();
+            metrics_updated ("", "", "");
         }
 
-        private void on_motion(double x, double y)
-        {
-            if (active == null) return;
-            active.on_mouse_dragged(to_canvas(x), to_canvas(y));
-            has_dragged = true;
+        // ── on_motion ─────────────────────────────────────────────────────
 
-            if (active.has_started()) {
-                metrics_updated(
-                    active.get_size_px(),
-                    active.get_size_m(),
-                    active.get_area_m2()
+        private void on_motion (double x, double y)
+        {
+            double cx = to_canvas (x);
+            double cy = to_canvas (y);
+
+            var ev = motion_ctrl.get_current_event ();
+            if (ev != null) {
+                var mods  = ev.get_modifier_state ();
+                shift_pressed = (mods & Gdk.ModifierType.SHIFT_MASK) != 0;
+            }
+
+            if (wall_active != null) {
+                wall_active.update_preview (cx, cy);
+                queue_draw ();
+                metrics_updated (
+                    wall_active.get_size_px (),
+                    wall_active.get_size_m (),
+                    wall_active.get_area_m2 ()
+                    );
+                return;
+            }
+
+            if (active_tool == ToolType.SELECT && sel_shape != null) {
+                switch (sel_interact) {
+                case 1: do_move   (cx, cy); return;
+                case 2: do_resize (cx, cy); return;
+                case 3: do_rotate (cx, cy); return;
+                case 4: do_vertex (cx, cy); return;
+                }
+                return;
+            }
+
+            if (active == null) return;
+            active.on_mouse_dragged (cx, cy);
+            has_dragged = true;
+            if (active.has_started ()) {
+                metrics_updated (
+                    active.get_size_px (),
+                    active.get_size_m (),
+                    active.get_area_m2 ()
                     );
             }
         }
 
-        private bool on_key_pressed(uint keyval, uint keycode, Gdk.ModifierType state)
+        // ── Lógica WALL ───────────────────────────────────────────────────
+
+        private void handle_wall_click (int n_press, double cx, double cy)
         {
-            // Atajos de zoom con Ctrl
-            if ((state & Gdk.ModifierType.CONTROL_MASK) != 0) {
-                if (keyval == '+' || keyval == '=') {
-                    zoom_in();    return true;
+            if (n_press == 2) {
+                if (wall_active == null) return;
+                wall_active.remove_last_vertex ();
+
+                if (wall_active.near_first_vertex (cx, cy)) {
+                    wall_active.close ();
+                } else if (wall_active.vertex_count >= 2) {
+                    wall_active.finish ();
+                } else {
+                    wall_active = null;
+                    queue_draw ();
+                    metrics_updated ("", "", "");
+                    return;
                 }
-                if (keyval == '-') {
-                    zoom_out();   return true;
-                }
-                if (keyval == '0') {
-                    zoom_reset(); return true;
+
+                shapes += wall_active;
+                rebuild_cache ();
+                wall_active = null;
+                queue_draw ();
+                metrics_updated ("", "", "");
+                return;
+            }
+
+            if (wall_active == null) {
+                wall_active = new Wall ();
+                wall_active.start_draw (cx, cy);
+            } else {
+                wall_active.add_vertex (cx, cy);
+            }
+            queue_draw ();
+        }
+
+        // ── Transformaciones SELECT ───────────────────────────────────────
+
+        private void do_move (double cx, double cy)
+        {
+            double dx = cx - sel_press_x;
+            double dy = cy - sel_press_y;
+            sel_shape.translate (dx, dy);
+            sel_press_x = cx;
+            sel_press_y = cy;
+            rebuild_cache ();
+            queue_draw ();
+            metrics_updated (sel_shape.get_size_px (), sel_shape.get_size_m (), sel_shape.get_area_m2 ());
+        }
+
+        private void do_resize (double cx, double cy)
+        {
+            if (!(sel_shape is Wall)) return;
+            var wall = (Wall) sel_shape;
+            wall.restore_snapshot (resize_snap_vx, resize_snap_vy);
+            double sx = resize_orig_w > 1.0
+                ? double.max (Math.fabs (cx - resize_anchor_x) / resize_orig_w, 0.01) : 1.0;
+            double sy = resize_orig_h > 1.0
+                ? double.max (Math.fabs (cy - resize_anchor_y) / resize_orig_h, 0.01) : 1.0;
+            wall.scale_vertices (sx, sy, resize_anchor_x, resize_anchor_y);
+            rebuild_cache ();
+            queue_draw ();
+            metrics_updated (wall.get_size_px (), wall.get_size_m (), wall.get_area_m2 ());
+        }
+
+        private void do_rotate (double cx, double cy)
+        {
+            if (!(sel_shape is Wall)) return;
+            var wall = (Wall) sel_shape;
+            wall.restore_snapshot (rot_snap_vx, rot_snap_vy);
+            double delta = Math.atan2 (cy - rot_cy, cx - rot_cx) - rot_orig_angle;
+            wall.rotate_vertices (delta, rot_cx, rot_cy);
+            rebuild_cache ();
+            queue_draw ();
+            metrics_updated (wall.get_size_px (), wall.get_size_m (), wall.get_area_m2 ());
+        }
+
+        private void do_vertex (double cx, double cy)
+        {
+            if (!(sel_shape is Wall)) return;
+            var wall = (Wall) sel_shape;
+
+            double fx = cx, fy = cy;
+            if (shift_pressed) {
+                double tdx = cx - sel_press_x;
+                double tdy = cy - sel_press_y;
+                if (Math.fabs (tdy) >= Math.fabs (tdx)) {
+                    fx = snap_nearest_x (cx, wall, vert_drag_idx);
+                } else {
+                    fy = snap_nearest_y (cy, wall, vert_drag_idx);
                 }
             }
 
-            if (active != null) active.on_key_pressed(keyval);
+            wall.move_vertex (vert_drag_idx, fx, fy);
+            rebuild_cache ();
+            queue_draw ();
+            metrics_updated (wall.get_size_px (), wall.get_size_m (), wall.get_area_m2 ());
+        }
+
+        // ── Snapping ──────────────────────────────────────────────────────
+
+        private double snap_nearest_x (double x, Wall excl_wall, int excl_idx)
+        {
+            double best = x, min_d = 1e18;
+            foreach (unowned var shape in shapes) {
+                var xs = shape.get_snap_xs ();
+                for (int i = 0; i < xs.length; i++) {
+                    if (shape == excl_wall && i == excl_idx) continue;
+                    double d = Math.fabs (x - xs[i]);
+                    if (d < min_d) { min_d = d; best = xs[i]; }
+                }
+            }
+            return best;
+        }
+
+        private double snap_nearest_y (double y, Wall excl_wall, int excl_idx)
+        {
+            double best = y, min_d = 1e18;
+            foreach (unowned var shape in shapes) {
+                var ys = shape.get_snap_ys ();
+                for (int i = 0; i < ys.length; i++) {
+                    if (shape == excl_wall && i == excl_idx) continue;
+                    double d = Math.fabs (y - ys[i]);
+                    if (d < min_d) { min_d = d; best = ys[i]; }
+                }
+            }
+            return best;
+        }
+
+        // ── Helpers de selección y modo ───────────────────────────────────
+
+        /**
+         * Aplica la selección sin cambiar el modo.
+         * Siempre resetea vertex_handles_visible de la figura anterior.
+         */
+        private void do_select (Shape? target)
+        {
+            foreach (unowned var s in shapes) {
+                s.set_selected (s == target);
+                if (s != target) s.vertex_handles_visible = false;
+            }
+            sel_shape = target;
+        }
+
+        /** Entra en modo TRANSFORM (bbox + handles de escala/rotación). */
+        private void enter_transform_mode ()
+        {
+            sel_mode = 1;
+            if (sel_shape != null) sel_shape.vertex_handles_visible = false;
+            rebuild_cache ();
+            queue_draw ();
+        }
+
+        /** Entra en modo VÉRTICES (handles de vértice, sin bbox). */
+        private void enter_vertex_mode ()
+        {
+            sel_mode = 2;
+            if (sel_shape != null) sel_shape.vertex_handles_visible = true;
+            rebuild_cache ();
+            queue_draw ();
+        }
+
+        /** Primer shape que contiene el punto (cx, cy), o null. */
+        private Shape? hit_shape (double cx, double cy)
+        {
+            foreach (unowned var shape in shapes) {
+                if (shape.contains_point (cx, cy)) return shape;
+            }
+            return null;
+        }
+
+        private int hit_resize_handle (BBoxRect b, double cx, double cy)
+        {
+            double[] hx = { b.x, b.x + b.w, b.x + b.w, b.x         };
+            double[] hy = { b.y, b.y,        b.y + b.h, b.y + b.h  };
+            for (int i = 0; i < 4; i++) {
+                if (dist2 (cx, cy, hx[i], hy[i]) <= TH_SIZE * TH_SIZE * 4) return i;
+            }
+            return -1;
+        }
+
+        private void start_resize (int corner, BBoxRect b, double cx, double cy)
+        {
+            resize_corner = corner;
+            sel_interact  = 2;
+            sel_press_x   = cx;
+            sel_press_y   = cy;
+            resize_orig_w = b.w;
+            resize_orig_h = b.h;
+            switch (corner) {
+            case 0: resize_anchor_x = b.x + b.w; resize_anchor_y = b.y + b.h; break;
+            case 1: resize_anchor_x = b.x;        resize_anchor_y = b.y + b.h; break;
+            case 2: resize_anchor_x = b.x;        resize_anchor_y = b.y;        break;
+            default: resize_anchor_x = b.x + b.w; resize_anchor_y = b.y;       break;
+            }
+            take_snapshot_for_resize ();
+        }
+
+        private void take_snapshot_for_resize ()
+        {
+            if (sel_shape is Wall) {
+                ((Wall) sel_shape).get_vertex_snapshot (out resize_snap_vx, out resize_snap_vy);
+            }
+        }
+
+        private void take_snapshot_for_rot ()
+        {
+            if (sel_shape is Wall) {
+                ((Wall) sel_shape).get_vertex_snapshot (out rot_snap_vx, out rot_snap_vy);
+            }
+        }
+
+        private double dist2 (double ax, double ay, double bx, double by)
+        {
+            double dx = ax - bx, dy = ay - by;
+            return dx * dx + dy * dy;
+        }
+
+        // ── Teclado ───────────────────────────────────────────────────────
+
+        private bool on_key_pressed (uint keyval, uint keycode, Gdk.ModifierType state)
+        {
+            if (keyval == Gdk.Key.Shift_L || keyval == Gdk.Key.Shift_R) {
+                shift_pressed = true;
+            }
+
+            if (keyval == Gdk.Key.Escape) {
+                if (wall_active != null) {
+                    wall_active = null;
+                    queue_draw ();
+                    metrics_updated ("", "", "");
+                    return true;
+                }
+                if (sel_shape != null) {
+                    if (sel_mode == 2) {
+                        // Volver a modo transform desde modo vértices
+                        sel_interact = 0;
+                        enter_transform_mode ();
+                    } else {
+                        // Deseleccionar
+                        do_select (null);
+                        sel_mode     = 0;
+                        sel_interact = 0;
+                        rebuild_cache ();
+                        queue_draw ();
+                        metrics_updated ("", "", "");
+                    }
+                    return true;
+                }
+            }
+
+            if ((state & Gdk.ModifierType.CONTROL_MASK) != 0) {
+                if (keyval == '+' || keyval == '=') { zoom_in ();    return true; }
+                if (keyval == '-')                  { zoom_out ();   return true; }
+                if (keyval == '0')                  { zoom_reset (); return true; }
+            }
+
+            if (active != null)      active.on_key_pressed (keyval);
+            if (wall_active != null) wall_active.on_key_pressed (keyval);
             return false;
         }
 
-        private void on_key_released(uint keyval, uint keycode, Gdk.ModifierType state)
+        private void on_key_released (uint keyval, uint keycode, Gdk.ModifierType state)
         {
-            if (active != null) active.on_key_released(keyval);
+            if (keyval == Gdk.Key.Shift_L || keyval == Gdk.Key.Shift_R) {
+                shift_pressed = false;
+            }
+            if (active != null)      active.on_key_released (keyval);
+            if (wall_active != null) wall_active.on_key_released (keyval);
         }
 
-        private bool on_scroll(double dx, double dy)
+        private bool on_scroll (double dx, double dy)
         {
-            var ev = scroll_ctrl.get_current_event();
+            var ev = scroll_ctrl.get_current_event ();
             if (ev == null) return false;
-
-            var mods = ev.get_modifier_state();
+            var mods = ev.get_modifier_state ();
             if ((mods & Gdk.ModifierType.CONTROL_MASK) == 0) return false;
-
-            if (dy < 0) zoom_in();
-            else if (dy > 0) zoom_out();
+            if (dy < 0) zoom_in ();
+            else if (dy > 0) zoom_out ();
             return true;
         }
 
-        // Fabrica de figuras
+        // ── Fábrica de figuras (drag-based) ───────────────────────────────
 
-        private Shape? create_shape()
+        private Shape? create_shape ()
         {
             switch (active_tool) {
-            case ToolType.WALL: return new Line();
-            case ToolType.COLUMN: return new Rect();
-            case ToolType.BULB: return new Circle();
-            case ToolType.OUTLET: return new Circle();
-            case ToolType.DOOR: return new Circle();
-            case ToolType.WINDOW: return new Circle();
-            case ToolType.FAUCET: return new Circle();
-            case ToolType.FURNITURE: return new Circle();
-            default: return null;
+            case ToolType.COLUMN:    return new Rect ();
+            case ToolType.BULB:      return new Circle ();
+            case ToolType.OUTLET:    return new Circle ();
+            case ToolType.DOOR:      return new Circle ();
+            case ToolType.WINDOW:    return new Circle ();
+            case ToolType.FAUCET:    return new Circle ();
+            case ToolType.FURNITURE: return new Circle ();
+            default:                 return null;
             }
         }
 
-        // Helpers internos
+        // ── Helpers internos ──────────────────────────────────────────────
 
-        private void update_size_request()
+        private void update_size_request ()
         {
-            set_size_request(
+            set_size_request (
                 (int)(WINDOW_WIDTH  * zoom_level),
                 (int)(WINDOW_HEIGHT * zoom_level)
                 );
         }
 
-        // Renderizado
+        // ── Renderizado ───────────────────────────────────────────────────
 
-        private void draw_func(Gtk.DrawingArea area, Cairo.Context cr,
-            int width, int height)
+        private void draw_func (Gtk.DrawingArea area, Cairo.Context cr,
+                                int width, int height)
         {
-            // 1. Fondo blanco (sin escalar para cubrir todo el widget)
-            cr.set_source_rgb(1, 1, 1);
-            cr.paint();
+            cr.set_source_rgb (1, 1, 1);
+            cr.paint ();
 
-            // 2. Aplicar transformacion de zoom al contenido del plano
-            cr.scale(zoom_level, zoom_level);
+            cr.scale (zoom_level, zoom_level);
 
-            // 3. Figuras terminadas (desde cache)
-            cr.set_source_surface(cache_surface, 0, 0);
-            cr.paint();
+            cr.set_source_surface (cache_surface, 0, 0);
+            cr.paint ();
 
-            // 4. Figura activa
-            if (active != null && active.has_started()) {
-                active.paint(cr);
-            }
+            if (wall_active != null)                     wall_active.paint (cr);
+            if (active != null && active.has_started ()) active.paint (cr);
+
+            // Overlay de transformación sólo en modo TRANSFORM
+            if (sel_shape != null && sel_mode == 1) draw_selection_overlay (cr);
         }
 
-        // Cache
-
-        private void rebuild_cache()
+        private void draw_selection_overlay (Cairo.Context cr)
         {
-            clear_cache_to_white();
+            var b = sel_shape.get_bbox ();
+            if (b.w < 1.0 && b.h < 1.0) return;
+
+            cr.save ();
+            cr.set_line_width (1.0);
+
+            // Bbox punteado
+            double[] dash = { 5.0, 3.0 };
+            cr.set_dash (dash, 0.0);
+            cr.set_source_rgba (0.15, 0.4, 0.9, 0.7);
+            cr.rectangle (b.x, b.y, b.w, b.h);
+            cr.stroke ();
+            cr.set_dash (new double[0], 0.0);
+
+            // 4 esquinas de redimensionado
+            double[] hx = { b.x, b.x + b.w, b.x + b.w, b.x         };
+            double[] hy = { b.y, b.y,        b.y + b.h, b.y + b.h  };
+            for (int i = 0; i < 4; i++) {
+                cr.set_source_rgba (1.0, 1.0, 1.0, 1.0);
+                cr.rectangle (hx[i] - TH_SIZE, hy[i] - TH_SIZE, TH_SIZE * 2, TH_SIZE * 2);
+                cr.fill ();
+                cr.set_source_rgba (0.15, 0.4, 0.9, 1.0);
+                cr.rectangle (hx[i] - TH_SIZE, hy[i] - TH_SIZE, TH_SIZE * 2, TH_SIZE * 2);
+                cr.stroke ();
+            }
+
+            // Handle de rotación
+            double rx = b.x + b.w / 2.0;
+            double ry = b.y - ROT_DIST;
+            cr.set_source_rgba (0.15, 0.4, 0.9, 0.5);
+            cr.move_to (b.x + b.w / 2.0, b.y);
+            cr.line_to (rx, ry);
+            cr.stroke ();
+            cr.set_source_rgba (1.0, 1.0, 1.0, 1.0);
+            cr.arc (rx, ry, TH_SIZE + 1, 0, 2.0 * Math.PI);
+            cr.fill ();
+            cr.set_source_rgba (0.15, 0.4, 0.9, 1.0);
+            cr.arc (rx, ry, TH_SIZE + 1, 0, 2.0 * Math.PI);
+            cr.stroke ();
+
+            cr.restore ();
+        }
+
+        // ── Cache ─────────────────────────────────────────────────────────
+
+        private void rebuild_cache ()
+        {
+            clear_cache_to_white ();
             foreach (unowned var shape in shapes) {
-                shape.paint(cache_cr);
+                shape.paint (cache_cr);
             }
         }
 
-        private void clear_cache_to_white()
+        private void clear_cache_to_white ()
         {
-            cache_cr.set_operator(Cairo.Operator.SOURCE);
-            cache_cr.set_source_rgb(1, 1, 1);
-            cache_cr.paint();
-            cache_cr.set_operator(Cairo.Operator.OVER);
+            cache_cr.set_operator (Cairo.Operator.SOURCE);
+            cache_cr.set_source_rgb (1, 1, 1);
+            cache_cr.paint ();
+            cache_cr.set_operator (Cairo.Operator.OVER);
         }
     }
 }

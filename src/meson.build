@@ -22,6 +22,7 @@ planly_sources = files(
   'gui/components/Line.vala',
   'gui/components/Rect.vala',
   'gui/components/Shape.vala',
+  'gui/components/Wall.vala',
   # ── Proyecto ──────────────────────────────────────────────────────────
   'project/Project.vala',
   'Accels.vala',

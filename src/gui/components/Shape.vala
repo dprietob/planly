@@ -14,6 +14,13 @@ namespace Planly
         protected bool _has_started = false;
         protected DrawMode draw_mode    = DrawMode.NORMAL;
 
+        /**
+         * Controla si se dibujan los handles de vértice en paint().
+         * true  = modo edición de vértices (doble clic en SELECT)
+         * false = modo transformación (clic simple en SELECT)
+         */
+        public bool vertex_handles_visible = false;
+
         // Estilo: grosor de linea, color de trazo y color de relleno.
         // Publicos para permitir edicion externa desde un futuro panel de propiedades.
         public double stroke_r   = 0.05;
@@ -174,6 +181,32 @@ namespace Planly
 
             cr.restore();
         }
+
+        /**
+         * Devuelve true si (x, y) cae sobre un handle de edición (vértice).
+         * Las figuras con vértices arrastrables sobreescriben este método.
+         */
+        public virtual bool has_handle_at (double x, double y)
+        {
+            return false;
+        }
+
+        // ── Transformaciones (sobreescribir en figuras concretas) ──────────
+
+        /** Desplaza la figura (dx, dy) en coordenadas lógicas. */
+        public virtual void translate (double dx, double dy) {}
+
+        /** Caja delimitadora alineada con los ejes en coordenadas lógicas. */
+        public virtual BBoxRect get_bbox ()
+        {
+            return { 0.0, 0.0, 0.0, 0.0 };
+        }
+
+        /** Puntos de anclaje X para el snapping de vértices con Shift. */
+        public virtual double[] get_snap_xs () { return {}; }
+
+        /** Puntos de anclaje Y para el snapping de vértices con Shift. */
+        public virtual double[] get_snap_ys () { return {}; }
 
         // Metodos abstractos
         public abstract void           paint(Cairo.Context cr);
