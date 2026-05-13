@@ -1,6 +1,6 @@
 namespace Planly
 {
-    public class KeyboardShortcutsSetup
+    public class Shortcuts
     {
         public static void setup(Application app)
         {

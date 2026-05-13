@@ -124,7 +124,7 @@ namespace Planly
                 Cairo.Format.ARGB32, WINDOW_WIDTH, WINDOW_HEIGHT
                 );
             cache_cr = new Cairo.Context (cache_surface);
-            clear_cache_to_white ();
+            clear_cache_background ();
 
             set_focusable (true);
             update_size_request ();
@@ -153,6 +153,16 @@ namespace Planly
                 rebuild_cache ();
             }
 
+            queue_draw ();
+        }
+
+        /**
+         * Llama a este método cuando el tema de color cambia para reconstruir
+         * la caché y redibujar todas las figuras con la nueva paleta.
+         */
+        public void theme_changed ()
+        {
+            rebuild_cache ();
             queue_draw ();
         }
 
@@ -1098,7 +1108,7 @@ namespace Planly
         private void draw_func (Gtk.DrawingArea area, Cairo.Context cr,
                                 int width, int height)
         {
-            cr.set_source_rgb (1, 1, 1);
+            ColorTheme.instance.active.canvas_background.apply (cr);
             cr.paint ();
 
             cr.scale (zoom_level, zoom_level);
@@ -1117,13 +1127,15 @@ namespace Planly
             var bounding_box = selected_shape.get_bbox ();
             if (bounding_box.w < 1.0 && bounding_box.h < 1.0) return;
 
+            var palette = ColorTheme.instance.active;
+
             cr.save ();
             cr.set_line_width (1.0);
 
             // Bbox punteado
             double[] dash = { 5.0, 3.0 };
             cr.set_dash (dash, 0.0);
-            cr.set_source_rgba (0.15, 0.4, 0.9, 0.7);
+            palette.bbox_outline.apply (cr);
             cr.rectangle (bounding_box.x, bounding_box.y, bounding_box.w, bounding_box.h);
             cr.stroke ();
             cr.set_dash (new double[0], 0.0);
@@ -1134,10 +1146,10 @@ namespace Planly
             double[] hy = { bounding_box.y, bounding_box.y,
                             bounding_box.y + bounding_box.h, bounding_box.y + bounding_box.h };
             for (int i = 0; i < 4; i++) {
-                cr.set_source_rgba (1.0, 1.0, 1.0, 1.0);
+                palette.bbox_handle_fill.apply (cr);
                 cr.rectangle (hx[i] - TH_SIZE, hy[i] - TH_SIZE, TH_SIZE * 2, TH_SIZE * 2);
                 cr.fill ();
-                cr.set_source_rgba (0.15, 0.4, 0.9, 1.0);
+                palette.bbox_handle_stroke.apply (cr);
                 cr.rectangle (hx[i] - TH_SIZE, hy[i] - TH_SIZE, TH_SIZE * 2, TH_SIZE * 2);
                 cr.stroke ();
             }
@@ -1145,14 +1157,14 @@ namespace Planly
             // Handle de rotación
             double rotation_handle_x = bounding_box.x + bounding_box.w / 2.0;
             double rotation_handle_y = bounding_box.y - ROT_DIST;
-            cr.set_source_rgba (0.15, 0.4, 0.9, 0.5);
+            palette.bbox_rotation_line.apply (cr);
             cr.move_to (bounding_box.x + bounding_box.w / 2.0, bounding_box.y);
             cr.line_to (rotation_handle_x, rotation_handle_y);
             cr.stroke ();
-            cr.set_source_rgba (1.0, 1.0, 1.0, 1.0);
+            palette.bbox_handle_fill.apply (cr);
             cr.arc (rotation_handle_x, rotation_handle_y, TH_SIZE + 1, 0, 2.0 * Math.PI);
             cr.fill ();
-            cr.set_source_rgba (0.15, 0.4, 0.9, 1.0);
+            palette.bbox_handle_stroke.apply (cr);
             cr.arc (rotation_handle_x, rotation_handle_y, TH_SIZE + 1, 0, 2.0 * Math.PI);
             cr.stroke ();
 
@@ -1163,16 +1175,16 @@ namespace Planly
 
         private void rebuild_cache ()
         {
-            clear_cache_to_white ();
+            clear_cache_background ();
             foreach (unowned var shape in shapes) {
                 shape.paint (cache_cr);
             }
         }
 
-        private void clear_cache_to_white ()
+        private void clear_cache_background ()
         {
             cache_cr.set_operator (Cairo.Operator.SOURCE);
-            cache_cr.set_source_rgb (1, 1, 1);
+            ColorTheme.instance.active.canvas_background.apply (cache_cr);
             cache_cr.paint ();
             cache_cr.set_operator (Cairo.Operator.OVER);
         }

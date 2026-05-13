@@ -2,6 +2,8 @@ namespace Planly
 {
     public class Window : Adw.ApplicationWindow
     {
+        private Scene scene;
+
         public Window (Gtk.Application app)
         {
             Object(application: app);
@@ -11,7 +13,7 @@ namespace Planly
             var header_bar = new HeaderBar();
             var tool_bar = new ToolBar();
             var status_bar = new StatusBar();
-            var scene = new Scene();
+            scene = new Scene();
 
             // Canvas dentro de un ScrolledWindow para soportar pan al hacer zoom
             var scrolled = new Gtk.ScrolledWindow();
@@ -163,20 +165,30 @@ namespace Planly
         /**
          * Aplica un cambio de tema.
          */
+        /**
+         * Aplica el tema visual indicado: actualiza el esquema de colores de Adwaita,
+         * actualiza la paleta del ColorTheme y redibuja el canvas.
+         *
+         * @param theme "light", "dark" o "system".
+         */
         private void apply_theme(string theme)
         {
-            var sm = Adw.StyleManager.get_default();
+            var style_manager = Adw.StyleManager.get_default();
             switch (theme) {
             case "light":
-                sm.color_scheme = Adw.ColorScheme.FORCE_LIGHT;
+                style_manager.color_scheme = Adw.ColorScheme.FORCE_LIGHT;
+                ColorTheme.instance.set_dark_mode (false);
                 break;
             case "system":
-                sm.color_scheme = Adw.ColorScheme.DEFAULT;
+                style_manager.color_scheme = Adw.ColorScheme.DEFAULT;
+                ColorTheme.instance.set_dark_mode (style_manager.dark);
                 break;
-            default:     // "dark"
-                sm.color_scheme = Adw.ColorScheme.FORCE_DARK;
+            default:  // "dark"
+                style_manager.color_scheme = Adw.ColorScheme.FORCE_DARK;
+                ColorTheme.instance.set_dark_mode (true);
                 break;
             }
+            scene.theme_changed ();
         }
     }
 }

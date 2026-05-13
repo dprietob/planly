@@ -23,10 +23,11 @@ planly_sources = files(
   # ── Proyecto ──────────────────────────────────────────────────────────
   'project/Project.vala',
   'Accels.vala',
-  'KeyboardShortcutsSetup.vala',
   'Actions.vala',
+  'ColorTheme.vala',
   'Constants.vala',
   'Planly.vala',
+  'Shortcuts.vala',
   'Utils.vala',
 )
 

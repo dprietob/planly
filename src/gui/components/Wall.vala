@@ -845,6 +845,8 @@ namespace Planly
             int n = _vertices_x.length;
             if (n == 0) return;
             cr.save();
+            var palette = ColorTheme.instance.active;
+
             cr.set_line_cap(Cairo.LineCap.ROUND);
             cr.set_line_join(Cairo.LineJoin.ROUND);
 
@@ -852,17 +854,16 @@ namespace Planly
                 cr.move_to(_vertices_x[0], _vertices_y[0]);
                 for (int i=0; i<n-1; i++) paint_seg(cr, i, i+1);
                 paint_seg(cr, n-1, 0);
-                cr.set_source_rgba(fill_color_red, fill_color_green,
-                                   fill_color_blue, fill_color_alpha);
+                palette.wall_fill.apply(cr);
                 cr.fill();
             }
 
             cr.set_line_width(WALL_LINE_W);
-            cr.set_source_rgba(
-                _is_selected ? 0.8 : stroke_color_red,
-                _is_selected ? 0.1 : stroke_color_green,
-                _is_selected ? 0.1 : stroke_color_blue,
-                1.0);
+            if (_is_selected) {
+                palette.wall_selected.apply(cr);
+            } else {
+                palette.wall_stroke.apply(cr);
+            }
             if (n >= 2) {
                 cr.move_to(_vertices_x[0], _vertices_y[0]);
                 for (int i=0; i<n-1; i++) paint_seg(cr, i, i+1);
@@ -873,25 +874,29 @@ namespace Planly
             // Segmento de previsualización — rojo si está bloqueado por colisión
             if (is_drawing) {
                 cr.save();
-                double[] dash={6.0, 4.0};
+                double[] dash = { 6.0, 4.0 };
                 cr.set_dash(dash, 0.0);
                 if (preview_blocked) {
-                    cr.set_source_rgba(0.85, 0.1, 0.1, 0.85);
+                    palette.wall_preview_blocked.apply(cr);
                 } else {
-                    cr.set_source_rgba(stroke_color_red, stroke_color_green,
-                                       stroke_color_blue, stroke_color_alpha*0.6);
+                    palette.wall_stroke.with_alpha(palette.wall_stroke.alpha * 0.6).apply(cr);
                 }
                 cr.move_to(_vertices_x[n-1], _vertices_y[n-1]);
                 cr.line_to(_cursor_x, _cursor_y);
-                cr.stroke(); cr.restore();
+                cr.stroke();
+                cr.restore();
             }
 
             if (is_drawing || (_is_selected && vertex_handles_visible)) {
                 cr.set_line_width(1.5);
-                cr.set_source_rgba(0.1, 0.3, 0.9, 1.0);
+                if (_is_selected) {
+                    palette.handle_vertex_active.apply(cr);
+                } else {
+                    palette.handle_vertex.apply(cr);
+                }
                 for (int i=0; i<n; i++) {
                     if (i == selected_vertex) {
-                        cr.set_source_rgba(0.1, 0.3, 0.9, 1.0);
+                        palette.handle_vertex_active.apply(cr);
                         cr.arc(_vertices_x[i], _vertices_y[i], HANDLE_RADIUS+1.5, 0, 2.0*Math.PI);
                         cr.fill();
                     } else {
@@ -901,9 +906,9 @@ namespace Planly
                 // Indicador de cierre: verde si es válido, rojo si está bloqueado
                 if (is_drawing && n>=3 && near_first_vertex(_cursor_x, _cursor_y)) {
                     if (preview_blocked) {
-                        cr.set_source_rgba(0.85, 0.1, 0.1, 0.9);
+                        palette.wall_preview_blocked.apply(cr);
                     } else {
-                        cr.set_source_rgba(0.2, 0.78, 0.2, 0.9);
+                        palette.handle_vertex_snap.apply(cr);
                     }
                     cr.arc(_vertices_x[0], _vertices_y[0], HANDLE_RADIUS*2.0, 0, 2.0*Math.PI);
                     cr.fill();
@@ -947,7 +952,7 @@ namespace Planly
                 if (!_bezier_incoming_active[i] && !_bezier_outgoing_active[i]) continue;
                 cr.save();
                 cr.set_line_width(0.8);
-                cr.set_source_rgba(0.4, 0.4, 0.4, 0.7);
+                ColorTheme.instance.active.bezier_tangent_line.apply(cr);
                 if (_bezier_outgoing_active[i]) {
                     cr.move_to(_vertices_x[i], _vertices_y[i]);
                     cr.line_to(_control_point_outgoing_x[i], _control_point_outgoing_y[i]);
@@ -967,10 +972,11 @@ namespace Planly
 
         private void paint_bez_dot(Cairo.Context cr, double x, double y)
         {
+            var palette = ColorTheme.instance.active;
             cr.set_line_width(1.2);
-            cr.set_source_rgba(1.0, 1.0, 1.0, 1.0);
+            palette.bbox_handle_fill.apply(cr);
             cr.arc(x, y, BEZ_HANDLE_R, 0, 2.0*Math.PI); cr.fill();
-            cr.set_source_rgba(0.15, 0.4, 0.9, 1.0);
+            palette.bezier_handle_dot.apply(cr);
             cr.arc(x, y, BEZ_HANDLE_R, 0, 2.0*Math.PI); cr.stroke();
         }
 
@@ -1059,12 +1065,7 @@ namespace Planly
 
                 cr.save();
                 cr.set_line_width(1.0);
-                if (_is_selected) {
-                    cr.set_source_rgba(0.8, 0.1, 0.1, 0.75);
-                } else {
-                    cr.set_source_rgba(stroke_color_red, stroke_color_green,
-                                       stroke_color_blue, 0.75);
-                }
+                ColorTheme.instance.active.angle_arc.apply(cr);
 
                 cr.new_sub_path();  // evitar que Cairo conecte el punto actual con el arco
                 if (normalized_m <= normalized_b) {
@@ -1135,8 +1136,7 @@ namespace Planly
 
                 cr.save();
                 cr.set_line_width(0.7);
-                cr.set_source_rgba(stroke_color_red, stroke_color_green,
-                                   stroke_color_blue, 0.85);
+                ColorTheme.instance.active.dimension_line.apply(cr);
 
                 // ── Líneas de extensión ───────────────────────────────────
                 cr.new_sub_path();

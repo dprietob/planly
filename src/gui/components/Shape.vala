@@ -21,16 +21,7 @@ namespace Planly
          */
         public bool vertex_handles_visible = false;
 
-        // Estilo: grosor de linea, color de trazo y color de relleno.
-        // Publicos para permitir edicion externa desde un futuro panel de propiedades.
-        public double stroke_color_red   = 0.05;
-        public double stroke_color_green = 0.05;
-        public double stroke_color_blue  = 0.05;
-        public double stroke_color_alpha = 1.0;
-        public double fill_color_red     = 0.28;
-        public double fill_color_green   = 0.58;
-        public double fill_color_blue    = 0.92;
-        public double fill_color_alpha   = 0.18;
+        /** Grosor del trazo de la figura en píxeles lógicos. */
         public double line_width = 1.5;
 
         // Drawable: estado
@@ -171,16 +162,18 @@ namespace Planly
             double text_x = -text_extents.x_bearing - text_extents.width  / 2.0;
             double text_y = -text_extents.y_bearing - text_extents.height / 2.0;
 
-            // Fondo blanco semitransparente
-            cr.set_source_rgba(1.0, 1.0, 1.0, 0.88);
+            var palette = ColorTheme.instance.active;
+
+            // Fondo de la etiqueta
+            palette.label_background.apply (cr);
             cr.rectangle(text_x + text_extents.x_bearing - padding,
                 text_y + text_extents.y_bearing - padding,
                 text_extents.width  + padding * 2.0,
                 text_extents.height + padding * 2.0);
             cr.fill();
 
-            // Texto
-            cr.set_source_rgb(0.1, 0.1, 0.1);
+            // Texto de la etiqueta
+            palette.label_text.apply (cr);
             cr.move_to(text_x, text_y);
             cr.show_text(text);
 

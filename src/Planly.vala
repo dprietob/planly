@@ -31,9 +31,9 @@ namespace Planly
         protected override void activate()
         {
             // Tema del sistema por defecto al arrancar y asignación de shortcuts
-            //  Adw.StyleManager.get_default().color_scheme = Adw.ColorScheme.DEFAULT;
-            Adw.StyleManager.get_default().color_scheme = Adw.ColorScheme.FORCE_LIGHT; // DEBUG:
-            KeyboardShortcutsSetup.setup(this);
+            Adw.StyleManager.get_default().color_scheme = Adw.ColorScheme.DEFAULT;
+            Shortcuts.setup(this);
+            ColorTheme.instance.load();
 
             var window = new Window(this);
             window.present();
