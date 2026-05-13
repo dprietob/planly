@@ -97,15 +97,15 @@ namespace Planly
         public override string get_size_m()
         {
             return "%.3f x %.3f m".printf(
-                Utils.convert_to_metters(_width_px),
-                Utils.convert_to_metters(_height_px)
+                DrawingMath.convert_pixels_to_meters(_width_px),
+                DrawingMath.convert_pixels_to_meters(_height_px)
                 );
         }
 
         public override string get_area_m2()
         {
-            double area = Utils.convert_to_metters(_width_px)
-                * Utils.convert_to_metters(_height_px);
+            double area = DrawingMath.convert_pixels_to_meters(_width_px)
+                * DrawingMath.convert_pixels_to_meters(_height_px);
             return "%.3f m\xc2\xb2".printf(area);
         }
 
@@ -117,7 +117,7 @@ namespace Planly
             cr.save();
 
             // Relleno semi-transparente
-            cr.set_source_rgba(fill_r, fill_g, fill_b, fill_a);
+            cr.set_source_rgba(fill_color_red, fill_color_green, fill_color_blue, fill_color_alpha);
             cr.rectangle(l, t, w, h);
             cr.fill_preserve();
 
@@ -126,7 +126,8 @@ namespace Planly
             if (_is_selected) {
                 cr.set_source_rgb(0.8, 0.1, 0.1);
             } else {
-                cr.set_source_rgba(stroke_r, stroke_g, stroke_b, stroke_a);
+                cr.set_source_rgba(stroke_color_red, stroke_color_green,
+                                   stroke_color_blue, stroke_color_alpha);
             }
             cr.stroke();
 
@@ -143,20 +144,20 @@ namespace Planly
 
             // Etiquetas de dimension en cada lado (solo si el lado es suficientemente grande)
             if (w >= 40.0) {
-                string lbl_w = format_m(Utils.convert_to_metters(_width_px));
+                string lbl_w = format_m(DrawingMath.convert_pixels_to_meters(_width_px));
                 paint_label(cr, lbl_w, l + w / 2.0, t, 0.0);
                 paint_label(cr, lbl_w, l + w / 2.0, b, 0.0);
             }
             if (h >= 40.0) {
-                string lbl_h = format_m(Utils.convert_to_metters(_height_px));
+                string lbl_h = format_m(DrawingMath.convert_pixels_to_meters(_height_px));
                 paint_label(cr, lbl_h, l, t + h / 2.0, -Math.PI / 2.0);
                 paint_label(cr, lbl_h, r, t + h / 2.0, -Math.PI / 2.0);
             }
 
             // Etiqueta de area en el centro (vertical y horizontalmente)
             if (w >= 60.0 && h >= 60.0) {
-                double area = Utils.convert_to_metters(_width_px)
-                    * Utils.convert_to_metters(_height_px);
+                double area = DrawingMath.convert_pixels_to_meters(_width_px)
+                    * DrawingMath.convert_pixels_to_meters(_height_px);
                 paint_label(cr, "%.2f m\xc2\xb2".printf(area),
                     l + w / 2.0, t + h / 2.0, 0.0);
             }
@@ -188,8 +189,8 @@ namespace Planly
                 corner_y = origin_y + (dy >= 0 ? side : -side);
             }
 
-            _width_px  = Utils.round(width());
-            _height_px = Utils.round(height());
+            _width_px  = DrawingMath.round(width());
+            _height_px = DrawingMath.round(height());
         }
     }
 }

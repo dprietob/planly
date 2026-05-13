@@ -48,12 +48,12 @@ namespace Planly
         private ToolType active_tool = ToolType.SELECT;
 
         // ── Muro en curso (clic-a-clic) ───────────────────────────────────
-        private Wall? wall_active  = null;
+        private Wall? wall_being_drawn  = null;
         // True si el último n_press=1 añadió efectivamente un vértice al muro
-        private bool  wall_v_added = false;
+        private bool  wall_vertex_was_added = false;
 
         // ── Selección ─────────────────────────────────────────────────────
-        private Shape? sel_shape = null;
+        private Shape? selected_shape = null;
 
         /**
          * Modo de edición de la figura seleccionada:
@@ -61,48 +61,48 @@ namespace Planly
          *   1 = TRANSFORM (bbox + handles de esquina/rotación)
          *   2 = VÉRTICES  (handles de vértice, sin bbox)
          */
-        private int sel_mode = 0;
+        private int selection_mode = 0;
 
         // Interacción activa:
         //   0=ninguna  1=mover  2=resize  3=rotar  4=vértice  5=handle Bézier
-        private int    sel_interact  = 0;
-        private double sel_press_x   = 0.0;
-        private double sel_press_y   = 0.0;
+        private int    interaction_type  = 0;
+        private double interaction_start_x   = 0.0;
+        private double interaction_start_y   = 0.0;
 
         // Resize
         private int    resize_corner   = -1;
         private double resize_anchor_x = 0.0;
         private double resize_anchor_y = 0.0;
-        private double resize_orig_w   = 0.0;
-        private double resize_orig_h   = 0.0;
+        private double resize_original_width   = 0.0;
+        private double resize_original_height  = 0.0;
 
         // Rotación
-        private double rot_cx         = 0.0;
-        private double rot_cy         = 0.0;
-        private double rot_orig_angle = 0.0;
+        private double rotation_center_x         = 0.0;
+        private double rotation_center_y         = 0.0;
+        private double rotation_original_angle   = 0.0;
 
         // Snapshot unificado (vértices + datos Bézier) para resize/rotate
-        private double[] trans_snap_vx  = {};
-        private double[] trans_snap_vy  = {};
-        private bool[]   trans_snap_bez_in  = {};
-        private bool[]   trans_snap_bez_out = {};
-        private double[] trans_snap_cox = {};
-        private double[] trans_snap_coy = {};
-        private double[] trans_snap_cix = {};
-        private double[] trans_snap_ciy = {};
+        private double[] snapshot_vertices_x        = {};
+        private double[] snapshot_vertices_y        = {};
+        private bool[]   snapshot_bezier_incoming   = {};
+        private bool[]   snapshot_bezier_outgoing   = {};
+        private double[] snapshot_control_outgoing_x = {};
+        private double[] snapshot_control_outgoing_y = {};
+        private double[] snapshot_control_incoming_x = {};
+        private double[] snapshot_control_incoming_y = {};
 
         // Vértice arrastrado (durante drag)
-        private int vert_drag_idx = -1;
+        private int vertex_drag_index = -1;
 
         // Vértice seleccionado para control por teclado (-1 = ninguno)
-        private int sel_vertex_idx = -1;
+        private int selected_vertex_index = -1;
 
         // Bézier: handle arrastrado
-        private int  bezier_vert_idx = -1;
-        private bool bezier_is_out   = false;
+        private int  bezier_vertex_index = -1;
+        private bool is_outgoing_bezier_handle = false;
 
         // Shift para snapping
-        private bool shift_pressed = false;
+        private bool is_shift_pressed = false;
 
         // ── Handles de transformación ─────────────────────────────────────
         private const double TH_SIZE  = 5.0;
@@ -135,7 +135,7 @@ namespace Planly
             setup_controllers ();
 
             GLib.Timeout.add (16, () => {
-                if (active != null || wall_active != null) queue_draw ();
+                if (active != null || wall_being_drawn != null) queue_draw ();
                 return GLib.Source.CONTINUE;
             });
         }
@@ -144,16 +144,16 @@ namespace Planly
 
         public void set_tool (ToolType tool)
         {
-            active_tool  = tool;
-            active       = null;
-            wall_active  = null;
-            wall_v_added = false;
-            sel_interact = 0;
+            active_tool          = tool;
+            active               = null;
+            wall_being_drawn     = null;
+            wall_vertex_was_added = false;
+            interaction_type     = 0;
 
             // Deseleccionar la figura activa al cambiar de herramienta
-            if (sel_shape != null) {
+            if (selected_shape != null) {
                 do_select (null);
-                sel_mode = 0;
+                selection_mode = 0;
                 rebuild_cache ();
             }
 
@@ -212,145 +212,151 @@ namespace Planly
         private void on_pressed (int n_press, double x, double y)
         {
             grab_focus ();
-            double cx = to_canvas (x);
-            double cy = to_canvas (y);
+            double canvas_x = to_canvas (x);
+            double canvas_y = to_canvas (y);
 
             if (active_tool == ToolType.WALL) {
-                handle_wall_click (n_press, cx, cy);
+                handle_wall_click (n_press, canvas_x, canvas_y);
                 return;
             }
 
             if (active_tool == ToolType.SELECT) {
-                on_select_press (n_press, cx, cy);
+                on_select_press (n_press, canvas_x, canvas_y);
                 return;
             }
 
             has_dragged = false;
             active      = create_shape ();
-            if (active != null) active.on_mouse_pressed (cx, cy);
+            if (active != null) active.on_mouse_pressed (canvas_x, canvas_y);
         }
 
-        private void on_select_press (int n_press, double cx, double cy)
+        private void on_select_press (int n_press, double canvas_x, double canvas_y)
         {
             if (n_press == 2) {
-                handle_select_double_click (cx, cy);
+                handle_select_double_click (canvas_x, canvas_y);
             } else {
-                handle_select_single_click (cx, cy);
+                handle_select_single_click (canvas_x, canvas_y);
             }
         }
 
-        private void handle_select_double_click (double cx, double cy)
+        private void handle_select_double_click (double canvas_x, double canvas_y)
         {
-            if (sel_mode == 2 && sel_shape is Wall) {
-                if (try_toggle_bezier_on_vertex (cx, cy)) return;
-                if (try_insert_vertex_on_segment (cx, cy)) return;
+            if (selection_mode == 2 && selected_shape is Wall) {
+                if (try_toggle_bezier_on_vertex (canvas_x, canvas_y)) return;
+                if (try_insert_vertex_on_segment (canvas_x, canvas_y)) return;
             }
 
-            if (sel_shape != null &&
-                (sel_shape.contains_point (cx, cy) || sel_shape.has_handle_at (cx, cy))) {
-                sel_interact = 0;
+            if (selected_shape != null &&
+                (selected_shape.contains_point (canvas_x, canvas_y) ||
+                 selected_shape.has_handle_at (canvas_x, canvas_y))) {
+                interaction_type = 0;
                 enter_vertex_mode ();
             } else {
-                Shape? hit = hit_shape (cx, cy);
-                if (hit != null && hit != sel_shape) {
-                    do_select (hit);
+                Shape? found_shape = hit_shape (canvas_x, canvas_y);
+                if (found_shape != null && found_shape != selected_shape) {
+                    do_select (found_shape);
                     enter_transform_mode ();
                 }
             }
         }
 
-        private void handle_select_single_click (double cx, double cy)
+        private void handle_select_single_click (double canvas_x, double canvas_y)
         {
-            if (sel_mode == 2 && sel_shape != null) {
-                if (sel_shape is Wall) {
-                    if (try_start_bezier_drag (cx, cy)) return;
-                    if (try_start_vertex_drag (cx, cy)) return;
+            if (selection_mode == 2 && selected_shape != null) {
+                if (selected_shape is Wall) {
+                    if (try_start_bezier_drag (canvas_x, canvas_y)) return;
+                    if (try_start_vertex_drag (canvas_x, canvas_y)) return;
                 }
-                if (sel_shape.contains_point (cx, cy)) return;
+                if (selected_shape.contains_point (canvas_x, canvas_y)) return;
             }
 
-            if (sel_mode == 1 && sel_shape != null) {
-                if (try_start_rotation (cx, cy)) return;
-                var b = sel_shape.get_bbox ();
-                int h = hit_resize_handle (b, cx, cy);
-                if (h >= 0) { start_resize (h, b, cx, cy); return; }
+            if (selection_mode == 1 && selected_shape != null) {
+                if (try_start_rotation (canvas_x, canvas_y)) return;
+                var bounding_box = selected_shape.get_bbox ();
+                int handle_index = hit_resize_handle (bounding_box, canvas_x, canvas_y);
+                if (handle_index >= 0) {
+                    start_resize (handle_index, bounding_box, canvas_x, canvas_y);
+                    return;
+                }
             }
 
-            Shape? hit = hit_shape (cx, cy);
-            do_select (hit);
-            if (hit != null) {
+            Shape? found_shape = hit_shape (canvas_x, canvas_y);
+            do_select (found_shape);
+            if (found_shape != null) {
                 enter_transform_mode ();
-                sel_interact = 1;
-                sel_press_x  = cx;
-                sel_press_y  = cy;
-                metrics_updated (hit.get_size_px (), hit.get_size_m (), hit.get_area_m2 ());
+                interaction_type    = 1;
+                interaction_start_x = canvas_x;
+                interaction_start_y = canvas_y;
+                metrics_updated (found_shape.get_size_px (), found_shape.get_size_m (),
+                                 found_shape.get_area_m2 ());
             } else {
-                sel_mode     = 0;
-                sel_interact = 0;
+                selection_mode   = 0;
+                interaction_type = 0;
                 metrics_updated ("", "", "");
             }
         }
 
         // ── Helpers de on_select_press ────────────────────────────────────
 
-        /** Activa/desactiva Bézier en el vértice bajo (cx,cy). Devuelve true si actuó. */
-        private bool try_toggle_bezier_on_vertex (double cx, double cy)
+        /** Activa/desactiva Bézier en el vértice bajo (canvas_x, canvas_y). Devuelve true si actuó. */
+        private bool try_toggle_bezier_on_vertex (double canvas_x, double canvas_y)
         {
-            var wall = (Wall) sel_shape;
-            int vi = wall.find_vertex (cx, cy);
-            if (vi < 0) return false;
-            sel_interact = 0;
-            wall.toggle_bezier (vi);
+            var wall = (Wall) selected_shape;
+            int vertex_index = wall.find_vertex (canvas_x, canvas_y);
+            if (vertex_index < 0) return false;
+            interaction_type = 0;
+            wall.toggle_bezier (vertex_index);
             rebuild_cache ();
             queue_draw ();
             return true;
         }
 
-        /** Inserta un vértice en el segmento bajo (cx,cy). Devuelve true si actuó. */
-        private bool try_insert_vertex_on_segment (double cx, double cy)
+        /** Inserta un vértice en el segmento bajo (canvas_x, canvas_y). Devuelve true si actuó. */
+        private bool try_insert_vertex_on_segment (double canvas_x, double canvas_y)
         {
-            var wall = (Wall) sel_shape;
-            if (wall.has_handle_at (cx, cy)) return false;
+            var wall = (Wall) selected_shape;
+            if (wall.has_handle_at (canvas_x, canvas_y)) return false;
             double proj_x, proj_y;
-            int seg = wall.find_segment_at (cx, cy, 10.0, out proj_x, out proj_y);
+            int seg = wall.find_segment_at (canvas_x, canvas_y, 10.0, out proj_x, out proj_y);
             if (seg < 0) return false;
-            int new_idx   = wall.insert_vertex (seg, proj_x, proj_y);
-            vert_drag_idx = new_idx;
-            sel_interact  = 4;
-            sel_press_x   = proj_x;
-            sel_press_y   = proj_y;
+            int new_idx         = wall.insert_vertex (seg, proj_x, proj_y);
+            vertex_drag_index   = new_idx;
+            interaction_type    = 4;
+            interaction_start_x = proj_x;
+            interaction_start_y = proj_y;
             rebuild_cache ();
             queue_draw ();
             return true;
         }
 
         /** Inicia arrastre de un handle Bézier. Devuelve true si actuó. */
-        private bool try_start_bezier_drag (double cx, double cy)
+        private bool try_start_bezier_drag (double canvas_x, double canvas_y)
         {
-            bool biz_out;
-            int biz = ((Wall) sel_shape).find_bezier_handle (cx, cy, out biz_out);
-            if (biz < 0) return false;
-            bezier_vert_idx = biz;
-            bezier_is_out   = biz_out;
-            sel_interact    = 5;
-            sel_press_x     = cx;
-            sel_press_y     = cy;
+            bool is_outgoing_handle;
+            int bezier_index = ((Wall) selected_shape).find_bezier_handle (
+                canvas_x, canvas_y, out is_outgoing_handle);
+            if (bezier_index < 0) return false;
+            bezier_vertex_index        = bezier_index;
+            is_outgoing_bezier_handle  = is_outgoing_handle;
+            interaction_type           = 5;
+            interaction_start_x        = canvas_x;
+            interaction_start_y        = canvas_y;
             take_transform_snapshot ();
             return true;
         }
 
         /** Selecciona un vértice e inicia su arrastre. Devuelve true si actuó. */
-        private bool try_start_vertex_drag (double cx, double cy)
+        private bool try_start_vertex_drag (double canvas_x, double canvas_y)
         {
-            var wall = (Wall) sel_shape;
-            int vi = wall.find_vertex (cx, cy);
-            if (vi < 0) return false;
-            sel_vertex_idx         = vi;
-            wall.selected_vertex   = vi;
-            vert_drag_idx          = vi;
-            sel_interact           = 4;
-            sel_press_x            = cx;
-            sel_press_y            = cy;
+            var wall = (Wall) selected_shape;
+            int vertex_index = wall.find_vertex (canvas_x, canvas_y);
+            if (vertex_index < 0) return false;
+            selected_vertex_index      = vertex_index;
+            wall.selected_vertex       = vertex_index;
+            vertex_drag_index          = vertex_index;
+            interaction_type           = 4;
+            interaction_start_x        = canvas_x;
+            interaction_start_y        = canvas_y;
             take_transform_snapshot ();
             rebuild_cache ();
             queue_draw ();
@@ -358,18 +364,20 @@ namespace Planly
         }
 
         /** Inicia rotación si el cursor está sobre el handle de rotación. Devuelve true si actuó. */
-        private bool try_start_rotation (double cx, double cy)
+        private bool try_start_rotation (double canvas_x, double canvas_y)
         {
-            var b = sel_shape.get_bbox ();
-            double rx = b.x + b.w / 2.0;
-            double ry = b.y - ROT_DIST;
-            if (dist2 (cx, cy, rx, ry) > (TH_SIZE + 3) * (TH_SIZE + 3)) return false;
-            sel_interact   = 3;
-            sel_press_x    = cx;
-            sel_press_y    = cy;
-            rot_cx         = b.x + b.w / 2.0;
-            rot_cy         = b.y + b.h / 2.0;
-            rot_orig_angle = Math.atan2 (cy - rot_cy, cx - rot_cx);
+            var bounding_box = selected_shape.get_bbox ();
+            double rotation_handle_x = bounding_box.x + bounding_box.w / 2.0;
+            double rotation_handle_y = bounding_box.y - ROT_DIST;
+            if (dist2 (canvas_x, canvas_y, rotation_handle_x, rotation_handle_y) >
+                (TH_SIZE + 3) * (TH_SIZE + 3)) return false;
+            interaction_type       = 3;
+            interaction_start_x    = canvas_x;
+            interaction_start_y    = canvas_y;
+            rotation_center_x      = bounding_box.x + bounding_box.w / 2.0;
+            rotation_center_y      = bounding_box.y + bounding_box.h / 2.0;
+            rotation_original_angle = Math.atan2 (canvas_y - rotation_center_y,
+                                                   canvas_x - rotation_center_x);
             take_transform_snapshot ();
             return true;
         }
@@ -378,28 +386,28 @@ namespace Planly
 
         private void on_released (int n_press, double x, double y)
         {
-            double cx = to_canvas (x);
-            double cy = to_canvas (y);
+            double canvas_x = to_canvas (x);
+            double canvas_y = to_canvas (y);
 
             if (active_tool == ToolType.SELECT) {
-                sel_interact    = 0;
-                resize_corner   = -1;
-                vert_drag_idx   = -1;
-                bezier_vert_idx = -1;
+                interaction_type    = 0;
+                resize_corner       = -1;
+                vertex_drag_index   = -1;
+                bezier_vertex_index = -1;
                 rebuild_cache ();
                 queue_draw ();
-                if (sel_shape != null) {
+                if (selected_shape != null) {
                     metrics_updated (
-                        sel_shape.get_size_px (),
-                        sel_shape.get_size_m (),
-                        sel_shape.get_area_m2 ()
+                        selected_shape.get_size_px (),
+                        selected_shape.get_size_m (),
+                        selected_shape.get_area_m2 ()
                         );
                 }
                 return;
             }
 
             if (active == null) return;
-            active.on_mouse_released (cx, cy);
+            active.on_mouse_released (canvas_x, canvas_y);
             if (has_dragged && active.is_valid ()) {
                 shapes += active;
                 rebuild_cache ();
@@ -414,57 +422,59 @@ namespace Planly
 
         private void on_motion (double x, double y)
         {
-            double cx = to_canvas (x);
-            double cy = to_canvas (y);
+            double canvas_x = to_canvas (x);
+            double canvas_y = to_canvas (y);
 
             var ev = motion_ctrl.get_current_event ();
             if (ev != null) {
                 var mods  = ev.get_modifier_state ();
-                shift_pressed = (mods & Gdk.ModifierType.SHIFT_MASK) != 0;
+                is_shift_pressed = (mods & Gdk.ModifierType.SHIFT_MASK) != 0;
             }
 
-            if (wall_active != null) {
-                wall_active.update_preview (cx, cy);
+            if (wall_being_drawn != null) {
+                wall_being_drawn.update_preview (canvas_x, canvas_y);
 
                 // Calcular si la previsualización actual está bloqueada
-                int nv  = wall_active.vertex_count;
-                double lx = wall_active.get_vertex_x (nv - 1);
-                double ly = wall_active.get_vertex_y (nv - 1);
+                int vertex_count  = wall_being_drawn.vertex_count;
+                double last_x = wall_being_drawn.get_vertex_x (vertex_count - 1);
+                double last_y = wall_being_drawn.get_vertex_y (vertex_count - 1);
 
-                bool blocked = would_block_drawing (lx, ly, cx, cy) ||
-                               wall_active.new_segment_crosses_self (lx, ly, cx, cy, nv - 1);
+                bool has_collision = would_block_drawing (last_x, last_y, canvas_x, canvas_y) ||
+                               wall_being_drawn.new_segment_crosses_self (
+                                   last_x, last_y, canvas_x, canvas_y, vertex_count - 1);
 
                 // Cerca del primer vértice: comprobar encierro y auto-cruce del cierre
-                if (!blocked && wall_active.near_first_vertex (cx, cy)) {
-                    double fx = wall_active.get_vertex_x (0);
-                    double fy = wall_active.get_vertex_y (0);
-                    blocked = would_enclose_existing (wall_active) ||
-                              wall_active.new_segment_crosses_self (lx, ly, fx, fy, nv - 1, true);
+                if (!has_collision && wall_being_drawn.near_first_vertex (canvas_x, canvas_y)) {
+                    double first_x = wall_being_drawn.get_vertex_x (0);
+                    double first_y = wall_being_drawn.get_vertex_y (0);
+                    has_collision = would_enclose_existing (wall_being_drawn) ||
+                              wall_being_drawn.new_segment_crosses_self (
+                                  last_x, last_y, first_x, first_y, vertex_count - 1, true);
                 }
-                wall_active.preview_blocked = blocked;
+                wall_being_drawn.preview_blocked = has_collision;
 
                 queue_draw ();
                 metrics_updated (
-                    wall_active.get_size_px (),
-                    wall_active.get_size_m (),
-                    wall_active.get_area_m2 ()
+                    wall_being_drawn.get_size_px (),
+                    wall_being_drawn.get_size_m (),
+                    wall_being_drawn.get_area_m2 ()
                     );
                 return;
             }
 
-            if (active_tool == ToolType.SELECT && sel_shape != null) {
-                switch (sel_interact) {
-                case 1: do_move   (cx, cy); return;
-                case 2: do_resize (cx, cy); return;
-                case 3: do_rotate (cx, cy); return;
-                case 4: do_vertex (cx, cy); return;
-                case 5: do_bezier (cx, cy); return;
+            if (active_tool == ToolType.SELECT && selected_shape != null) {
+                switch (interaction_type) {
+                case 1: do_move   (canvas_x, canvas_y); return;
+                case 2: do_resize (canvas_x, canvas_y); return;
+                case 3: do_rotate (canvas_x, canvas_y); return;
+                case 4: do_vertex (canvas_x, canvas_y); return;
+                case 5: do_bezier (canvas_x, canvas_y); return;
                 }
                 return;
             }
 
             if (active == null) return;
-            active.on_mouse_dragged (cx, cy);
+            active.on_mouse_dragged (canvas_x, canvas_y);
             has_dragged = true;
             if (active.has_started ()) {
                 metrics_updated (
@@ -477,33 +487,33 @@ namespace Planly
 
         // ── Lógica WALL ───────────────────────────────────────────────────
 
-        private void handle_wall_click (int n_press, double cx, double cy)
+        private void handle_wall_click (int n_press, double canvas_x, double canvas_y)
         {
             if (n_press == 2) {
-                handle_wall_double_click (cx, cy);
+                handle_wall_double_click (canvas_x, canvas_y);
             } else {
-                handle_wall_single_click (cx, cy);
+                handle_wall_single_click (canvas_x, canvas_y);
             }
         }
 
-        private void handle_wall_double_click (double cx, double cy)
+        private void handle_wall_double_click (double canvas_x, double canvas_y)
         {
-            if (wall_active == null) return;
+            if (wall_being_drawn == null) return;
 
-            if (wall_v_added) {
-                wall_active.remove_last_vertex ();
-                wall_v_added = false;
+            if (wall_vertex_was_added) {
+                wall_being_drawn.remove_last_vertex ();
+                wall_vertex_was_added = false;
             }
 
-            if (wall_active.near_first_vertex (cx, cy)) {
+            if (wall_being_drawn.near_first_vertex (canvas_x, canvas_y)) {
                 if (closing_segment_is_valid ()) {
-                    wall_active.close ();
+                    wall_being_drawn.close ();
                     commit_wall ();
                 } else {
                     cancel_wall ();
                 }
-            } else if (wall_active.vertex_count >= 2) {
-                if (try_close_wall_via_point (cx, cy)) {
+            } else if (wall_being_drawn.vertex_count >= 2) {
+                if (try_close_wall_via_point (canvas_x, canvas_y)) {
                     commit_wall ();
                 } else {
                     queue_draw (); // el usuario debe usar el punto verde o Escape
@@ -513,29 +523,30 @@ namespace Planly
             }
         }
 
-        private void handle_wall_single_click (double cx, double cy)
+        private void handle_wall_single_click (double canvas_x, double canvas_y)
         {
-            wall_v_added = false;
+            wall_vertex_was_added = false;
 
-            if (wall_active == null) {
-                if (!would_block_drawing (cx, cy, cx, cy)) {
-                    wall_active = new Wall ();
-                    wall_active.start_draw (cx, cy);
+            if (wall_being_drawn == null) {
+                if (!would_block_drawing (canvas_x, canvas_y, canvas_x, canvas_y)) {
+                    wall_being_drawn = new Wall ();
+                    wall_being_drawn.start_draw (canvas_x, canvas_y);
                 }
-            } else if (wall_active.near_first_vertex (cx, cy)) {
+            } else if (wall_being_drawn.near_first_vertex (canvas_x, canvas_y)) {
                 if (closing_segment_is_valid ()) {
-                    wall_active.close ();
+                    wall_being_drawn.close ();
                     commit_wall ();
                     return;
                 }
             } else {
-                int    nv = wall_active.vertex_count;
-                double lx = wall_active.get_vertex_x (nv - 1);
-                double ly = wall_active.get_vertex_y (nv - 1);
-                if (!would_block_drawing (lx, ly, cx, cy) &&
-                    !wall_active.new_segment_crosses_self (lx, ly, cx, cy, nv - 1)) {
-                    wall_active.add_vertex (cx, cy);
-                    wall_v_added = true;
+                int    vertex_count = wall_being_drawn.vertex_count;
+                double last_x = wall_being_drawn.get_vertex_x (vertex_count - 1);
+                double last_y = wall_being_drawn.get_vertex_y (vertex_count - 1);
+                if (!would_block_drawing (last_x, last_y, canvas_x, canvas_y) &&
+                    !wall_being_drawn.new_segment_crosses_self (
+                        last_x, last_y, canvas_x, canvas_y, vertex_count - 1)) {
+                    wall_being_drawn.add_vertex (canvas_x, canvas_y);
+                    wall_vertex_was_added = true;
                 }
             }
             queue_draw ();
@@ -544,55 +555,57 @@ namespace Planly
         /** True si el tramo V(n-1)→V0 es dibujable (sin colisión ni auto-cruce). */
         private bool closing_segment_is_valid ()
         {
-            int    nv = wall_active.vertex_count;
-            double lx = wall_active.get_vertex_x (nv - 1);
-            double ly = wall_active.get_vertex_y (nv - 1);
-            double fx = wall_active.get_vertex_x (0);
-            double fy = wall_active.get_vertex_y (0);
-            return !would_block_drawing (lx, ly, fx, fy) &&
-                   !would_enclose_existing (wall_active) &&
-                   !wall_active.new_segment_crosses_self (lx, ly, fx, fy, nv - 1, true);
+            int    vertex_count = wall_being_drawn.vertex_count;
+            double last_x = wall_being_drawn.get_vertex_x (vertex_count - 1);
+            double last_y = wall_being_drawn.get_vertex_y (vertex_count - 1);
+            double first_x = wall_being_drawn.get_vertex_x (0);
+            double first_y = wall_being_drawn.get_vertex_y (0);
+            return !would_block_drawing (last_x, last_y, first_x, first_y) &&
+                   !would_enclose_existing (wall_being_drawn) &&
+                   !wall_being_drawn.new_segment_crosses_self (
+                       last_x, last_y, first_x, first_y, vertex_count - 1, true);
         }
 
         /**
-         * Intenta cerrar el muro añadiendo (cx,cy) antes del V0.
+         * Intenta cerrar el muro añadiendo (canvas_x, canvas_y) antes del V0.
          * Devuelve true si el cierre es válido (y el vértice ya está añadido).
          */
-        private bool try_close_wall_via_point (double cx, double cy)
+        private bool try_close_wall_via_point (double canvas_x, double canvas_y)
         {
-            int    nv = wall_active.vertex_count;
-            double lx = wall_active.get_vertex_x (nv - 1);
-            double ly = wall_active.get_vertex_y (nv - 1);
-            double fx = wall_active.get_vertex_x (0);
-            double fy = wall_active.get_vertex_y (0);
+            int    vertex_count = wall_being_drawn.vertex_count;
+            double last_x  = wall_being_drawn.get_vertex_x (vertex_count - 1);
+            double last_y  = wall_being_drawn.get_vertex_y (vertex_count - 1);
+            double first_x = wall_being_drawn.get_vertex_x (0);
+            double first_y = wall_being_drawn.get_vertex_y (0);
 
-            if (would_block_drawing (lx, ly, cx, cy) ||
-                would_block_drawing (cx, cy, fx, fy) ||
-                wall_active.new_segment_crosses_self (lx, ly, cx, cy, nv - 1)) {
+            if (would_block_drawing (last_x, last_y, canvas_x, canvas_y) ||
+                would_block_drawing (canvas_x, canvas_y, first_x, first_y) ||
+                wall_being_drawn.new_segment_crosses_self (
+                    last_x, last_y, canvas_x, canvas_y, vertex_count - 1)) {
                 return false;
             }
 
-            wall_active.add_vertex (cx, cy);
-            int nv2 = wall_active.vertex_count;
-            if (would_enclose_existing (wall_active) ||
-                wall_active.new_segment_crosses_self (
-                    wall_active.get_vertex_x (nv2 - 1),
-                    wall_active.get_vertex_y (nv2 - 1),
-                    fx, fy, nv2 - 1, true)) {
-                wall_active.remove_last_vertex ();
+            wall_being_drawn.add_vertex (canvas_x, canvas_y);
+            int new_vertex_count = wall_being_drawn.vertex_count;
+            if (would_enclose_existing (wall_being_drawn) ||
+                wall_being_drawn.new_segment_crosses_self (
+                    wall_being_drawn.get_vertex_x (new_vertex_count - 1),
+                    wall_being_drawn.get_vertex_y (new_vertex_count - 1),
+                    first_x, first_y, new_vertex_count - 1, true)) {
+                wall_being_drawn.remove_last_vertex ();
                 return false;
             }
 
-            wall_active.close ();
+            wall_being_drawn.close ();
             return true;
         }
 
         /** Guarda el muro activo en el canvas y limpia el estado de dibujo. */
         private void commit_wall ()
         {
-            shapes += wall_active;
+            shapes += wall_being_drawn;
             rebuild_cache ();
-            wall_active = null;
+            wall_being_drawn = null;
             queue_draw ();
             metrics_updated ("", "", "");
         }
@@ -600,63 +613,64 @@ namespace Planly
         /** Descarta el muro activo sin guardarlo. */
         private void cancel_wall ()
         {
-            wall_active = null;
+            wall_being_drawn = null;
             queue_draw ();
             metrics_updated ("", "", "");
         }
 
         // ── Transformaciones SELECT ───────────────────────────────────────
 
-        private void do_move (double cx, double cy)
+        private void do_move (double canvas_x, double canvas_y)
         {
-            double dx = cx - sel_press_x;
-            double dy = cy - sel_press_y;
+            double delta_x = canvas_x - interaction_start_x;
+            double delta_y = canvas_y - interaction_start_y;
 
             // Intentar el movimiento completo
-            sel_shape.translate (dx, dy);
+            selected_shape.translate (delta_x, delta_y);
 
-            if (!check_collisions (sel_shape)) {
+            if (!check_collisions (selected_shape)) {
                 // Sin colisión: aceptar
-                sel_press_x = cx;
-                sel_press_y = cy;
+                interaction_start_x = canvas_x;
+                interaction_start_y = canvas_y;
             } else {
                 // Revertir movimiento combinado
-                sel_shape.translate (-dx, -dy);
+                selected_shape.translate (-delta_x, -delta_y);
 
                 // Deslizamiento en X
-                if (Math.fabs (dx) > 0.01) {
-                    sel_shape.translate (dx, 0.0);
-                    if (!check_collisions (sel_shape)) {
-                        sel_press_x = cx;   // X aceptado
+                if (Math.fabs (delta_x) > 0.01) {
+                    selected_shape.translate (delta_x, 0.0);
+                    if (!check_collisions (selected_shape)) {
+                        interaction_start_x = canvas_x;   // X aceptado
                     } else {
-                        sel_shape.translate (-dx, 0.0);
+                        selected_shape.translate (-delta_x, 0.0);
                     }
                 }
 
                 // Deslizamiento en Y (sobre la posición tras el intento X)
-                if (Math.fabs (dy) > 0.01) {
-                    sel_shape.translate (0.0, dy);
-                    if (!check_collisions (sel_shape)) {
-                        sel_press_y = cy;   // Y aceptado
+                if (Math.fabs (delta_y) > 0.01) {
+                    selected_shape.translate (0.0, delta_y);
+                    if (!check_collisions (selected_shape)) {
+                        interaction_start_y = canvas_y;   // Y aceptado
                     } else {
-                        sel_shape.translate (0.0, -dy);
+                        selected_shape.translate (0.0, -delta_y);
                     }
                 }
             }
 
             rebuild_cache ();
             queue_draw ();
-            metrics_updated (sel_shape.get_size_px (), sel_shape.get_size_m (), sel_shape.get_area_m2 ());
+            metrics_updated (selected_shape.get_size_px (), selected_shape.get_size_m (),
+                             selected_shape.get_area_m2 ());
         }
 
-        /** True si la figura moving colisiona con alguna otra del canvas. */
-        private bool check_collisions (Shape moving)
+        /** True si la figura moving_wall colisiona con alguna otra del canvas. */
+        private bool check_collisions (Shape moving_wall)
         {
-            if (!(moving is Wall)) return false;
-            var mwall = (Wall) moving;
+            if (!(moving_wall is Wall)) return false;
+            var wall = (Wall) moving_wall;
             foreach (unowned var shape in shapes) {
-                if (shape == moving) continue;
-                if (shape is Wall && mwall.collides_with ((Wall) shape)) return true;
+                if (shape == moving_wall) continue;
+                if (shape is Wall && wall.collides_with ((Wall) shape)) return true;
             }
             return false;
         }
@@ -690,35 +704,37 @@ namespace Planly
             return false;
         }
 
-        private void do_resize (double cx, double cy)
+        private void do_resize (double canvas_x, double canvas_y)
         {
-            if (!(sel_shape is Wall)) return;
-            var wall = (Wall) sel_shape;
+            if (!(selected_shape is Wall)) return;
+            var wall = (Wall) selected_shape;
 
-            double sx_des = resize_orig_w > 1.0
-                ? double.max (Math.fabs (cx - resize_anchor_x) / resize_orig_w, 0.01) : 1.0;
-            double sy_des = resize_orig_h > 1.0
-                ? double.max (Math.fabs (cy - resize_anchor_y) / resize_orig_h, 0.01) : 1.0;
+            double sx_des = resize_original_width > 1.0
+                ? double.max (Math.fabs (canvas_x - resize_anchor_x) / resize_original_width, 0.01)
+                : 1.0;
+            double sy_des = resize_original_height > 1.0
+                ? double.max (Math.fabs (canvas_y - resize_anchor_y) / resize_original_height, 0.01)
+                : 1.0;
 
-            restore_trans_snap (wall);
+            restore_transform_snapshot (wall);
             wall.scale_vertices (sx_des, sy_des, resize_anchor_x, resize_anchor_y);
 
             if (check_collisions (wall)) {
                 // Buscar el factor máximo de escala sin colisión
-                double best_t = 0.0, lo = 0.0, hi = 1.0;
+                double best_factor = 0.0, lower_bound = 0.0, upper_bound = 1.0;
                 for (int i = 0; i < 8; i++) {
-                    double mid = (lo + hi) / 2.0;
-                    restore_trans_snap (wall);
-                    wall.scale_vertices (1.0 + mid * (sx_des - 1.0),
-                                         1.0 + mid * (sy_des - 1.0),
+                    double midpoint_factor = (lower_bound + upper_bound) / 2.0;
+                    restore_transform_snapshot (wall);
+                    wall.scale_vertices (1.0 + midpoint_factor * (sx_des - 1.0),
+                                         1.0 + midpoint_factor * (sy_des - 1.0),
                                          resize_anchor_x, resize_anchor_y);
-                    if (check_collisions (wall)) hi = mid;
-                    else { best_t = mid; lo = mid; }
+                    if (check_collisions (wall)) upper_bound = midpoint_factor;
+                    else { best_factor = midpoint_factor; lower_bound = midpoint_factor; }
                 }
-                restore_trans_snap (wall);
-                if (best_t > 0.0) {
-                    wall.scale_vertices (1.0 + best_t * (sx_des - 1.0),
-                                         1.0 + best_t * (sy_des - 1.0),
+                restore_transform_snapshot (wall);
+                if (best_factor > 0.0) {
+                    wall.scale_vertices (1.0 + best_factor * (sx_des - 1.0),
+                                         1.0 + best_factor * (sy_des - 1.0),
                                          resize_anchor_x, resize_anchor_y);
                 }
             }
@@ -728,28 +744,32 @@ namespace Planly
             metrics_updated (wall.get_size_px (), wall.get_size_m (), wall.get_area_m2 ());
         }
 
-        private void do_rotate (double cx, double cy)
+        private void do_rotate (double canvas_x, double canvas_y)
         {
-            if (!(sel_shape is Wall)) return;
-            var wall  = (Wall) sel_shape;
-            double delta_des = Math.atan2 (cy - rot_cy, cx - rot_cx) - rot_orig_angle;
+            if (!(selected_shape is Wall)) return;
+            var wall  = (Wall) selected_shape;
+            double delta_des = Math.atan2 (canvas_y - rotation_center_y,
+                                           canvas_x - rotation_center_x)
+                               - rotation_original_angle;
 
-            restore_trans_snap (wall);
-            wall.rotate_vertices (delta_des, rot_cx, rot_cy);
+            restore_transform_snapshot (wall);
+            wall.rotate_vertices (delta_des, rotation_center_x, rotation_center_y);
 
             if (check_collisions (wall)) {
                 // Buscar el ángulo máximo de rotación sin colisión
-                double best_t = 0.0, lo = 0.0, hi = 1.0;
+                double best_factor = 0.0, lower_bound = 0.0, upper_bound = 1.0;
                 for (int i = 0; i < 8; i++) {
-                    double mid = (lo + hi) / 2.0;
-                    restore_trans_snap (wall);
-                    wall.rotate_vertices (mid * delta_des, rot_cx, rot_cy);
-                    if (check_collisions (wall)) hi = mid;
-                    else { best_t = mid; lo = mid; }
+                    double midpoint_factor = (lower_bound + upper_bound) / 2.0;
+                    restore_transform_snapshot (wall);
+                    wall.rotate_vertices (midpoint_factor * delta_des,
+                                          rotation_center_x, rotation_center_y);
+                    if (check_collisions (wall)) upper_bound = midpoint_factor;
+                    else { best_factor = midpoint_factor; lower_bound = midpoint_factor; }
                 }
-                restore_trans_snap (wall);
-                if (best_t > 0.0) {
-                    wall.rotate_vertices (best_t * delta_des, rot_cx, rot_cy);
+                restore_transform_snapshot (wall);
+                if (best_factor > 0.0) {
+                    wall.rotate_vertices (best_factor * delta_des,
+                                          rotation_center_x, rotation_center_y);
                 }
             }
 
@@ -758,42 +778,43 @@ namespace Planly
             metrics_updated (wall.get_size_px (), wall.get_size_m (), wall.get_area_m2 ());
         }
 
-        private void do_bezier (double cx, double cy)
+        private void do_bezier (double canvas_x, double canvas_y)
         {
-            if (!(sel_shape is Wall)) return;
-            var wall = (Wall) sel_shape;
+            if (!(selected_shape is Wall)) return;
+            var wall = (Wall) selected_shape;
 
             // Restaurar al estado inicial del drag, aplicar y comprobar colisión
-            restore_trans_snap (wall);
-            wall.move_bezier_cp (bezier_vert_idx, bezier_is_out, cx, cy);
-            if (check_collisions (wall)) restore_trans_snap (wall);
+            restore_transform_snapshot (wall);
+            wall.move_bezier_cp (bezier_vertex_index, is_outgoing_bezier_handle,
+                                  canvas_x, canvas_y);
+            if (check_collisions (wall)) restore_transform_snapshot (wall);
 
             rebuild_cache ();
             queue_draw ();
             metrics_updated (wall.get_size_px (), wall.get_size_m (), wall.get_area_m2 ());
         }
 
-        private void do_vertex (double cx, double cy)
+        private void do_vertex (double canvas_x, double canvas_y)
         {
-            if (!(sel_shape is Wall)) return;
-            var wall = (Wall) sel_shape;
+            if (!(selected_shape is Wall)) return;
+            var wall = (Wall) selected_shape;
 
-            double fx = cx, fy = cy;
-            if (shift_pressed) {
-                double tdx = cx - sel_press_x;
-                double tdy = cy - sel_press_y;
+            double final_x = canvas_x, final_y = canvas_y;
+            if (is_shift_pressed) {
+                double tdx = canvas_x - interaction_start_x;
+                double tdy = canvas_y - interaction_start_y;
                 if (Math.fabs (tdy) >= Math.fabs (tdx)) {
-                    fx = snap_nearest_x (cx, wall, vert_drag_idx);
+                    final_x = snap_nearest_x (canvas_x, wall, vertex_drag_index);
                 } else {
-                    fy = snap_nearest_y (cy, wall, vert_drag_idx);
+                    final_y = snap_nearest_y (canvas_y, wall, vertex_drag_index);
                 }
             }
 
             // Restaurar al estado inicial del drag, aplicar y comprobar colisión/auto-cruce
-            restore_trans_snap (wall);
-            wall.move_vertex (vert_drag_idx, fx, fy);
+            restore_transform_snapshot (wall);
+            wall.move_vertex (vertex_drag_index, final_x, final_y);
             if (check_collisions (wall) || wall.has_self_intersection ()) {
-                restore_trans_snap (wall);
+                restore_transform_snapshot (wall);
             }
 
             rebuild_cache ();
@@ -846,18 +867,19 @@ namespace Planly
                     if (s is Wall) ((Wall) s).selected_vertex = -1;
                 }
             }
-            sel_shape      = target;
-            sel_vertex_idx = -1;
+            selected_shape        = target;
+            selected_vertex_index = -1;
         }
 
         /** Entra en modo TRANSFORM (bbox + handles de escala/rotación). */
         private void enter_transform_mode ()
         {
-            sel_mode       = 1;
-            sel_vertex_idx = -1;
-            if (sel_shape != null) {
-                sel_shape.vertex_handles_visible = false;
-                if (sel_shape is Wall) ((Wall) sel_shape).selected_vertex = -1;
+            selection_mode        = 1;
+            selected_vertex_index = -1;
+            if (selected_shape != null) {
+                selected_shape.vertex_handles_visible = false;
+                if (selected_shape is Wall)
+                    ((Wall) selected_shape).selected_vertex = -1;
             }
             rebuild_cache ();
             queue_draw ();
@@ -866,66 +888,82 @@ namespace Planly
         /** Entra en modo VÉRTICES (handles de vértice, sin bbox). */
         private void enter_vertex_mode ()
         {
-            sel_mode = 2;
-            if (sel_shape != null) sel_shape.vertex_handles_visible = true;
+            selection_mode = 2;
+            if (selected_shape != null) selected_shape.vertex_handles_visible = true;
             rebuild_cache ();
             queue_draw ();
         }
 
-        /** Primer shape que contiene el punto (cx, cy), o null. */
-        private Shape? hit_shape (double cx, double cy)
+        /** Primer shape que contiene el punto (canvas_x, canvas_y), o null. */
+        private Shape? hit_shape (double canvas_x, double canvas_y)
         {
             foreach (unowned var shape in shapes) {
-                if (shape.contains_point (cx, cy)) return shape;
+                if (shape.contains_point (canvas_x, canvas_y)) return shape;
             }
             return null;
         }
 
-        private int hit_resize_handle (BBoxRect b, double cx, double cy)
+        private int hit_resize_handle (BBoxRect bounding_box, double canvas_x, double canvas_y)
         {
-            double[] hx = { b.x, b.x + b.w, b.x + b.w, b.x         };
-            double[] hy = { b.y, b.y,        b.y + b.h, b.y + b.h  };
+            double[] hx = { bounding_box.x, bounding_box.x + bounding_box.w,
+                            bounding_box.x + bounding_box.w, bounding_box.x };
+            double[] hy = { bounding_box.y, bounding_box.y,
+                            bounding_box.y + bounding_box.h, bounding_box.y + bounding_box.h };
             for (int i = 0; i < 4; i++) {
-                if (dist2 (cx, cy, hx[i], hy[i]) <= TH_SIZE * TH_SIZE * 4) return i;
+                if (dist2 (canvas_x, canvas_y, hx[i], hy[i]) <= TH_SIZE * TH_SIZE * 4)
+                    return i;
             }
             return -1;
         }
 
-        private void start_resize (int corner, BBoxRect b, double cx, double cy)
+        private void start_resize (int corner, BBoxRect bounding_box,
+                                    double canvas_x, double canvas_y)
         {
-            resize_corner = corner;
-            sel_interact  = 2;
-            sel_press_x   = cx;
-            sel_press_y   = cy;
-            resize_orig_w = b.w;
-            resize_orig_h = b.h;
+            resize_corner          = corner;
+            interaction_type       = 2;
+            interaction_start_x    = canvas_x;
+            interaction_start_y    = canvas_y;
+            resize_original_width  = bounding_box.w;
+            resize_original_height = bounding_box.h;
             switch (corner) {
-            case 0: resize_anchor_x = b.x + b.w; resize_anchor_y = b.y + b.h; break;
-            case 1: resize_anchor_x = b.x;        resize_anchor_y = b.y + b.h; break;
-            case 2: resize_anchor_x = b.x;        resize_anchor_y = b.y;        break;
-            default: resize_anchor_x = b.x + b.w; resize_anchor_y = b.y;       break;
+            case 0:
+                resize_anchor_x = bounding_box.x + bounding_box.w;
+                resize_anchor_y = bounding_box.y + bounding_box.h;
+                break;
+            case 1:
+                resize_anchor_x = bounding_box.x;
+                resize_anchor_y = bounding_box.y + bounding_box.h;
+                break;
+            case 2:
+                resize_anchor_x = bounding_box.x;
+                resize_anchor_y = bounding_box.y;
+                break;
+            default:
+                resize_anchor_x = bounding_box.x + bounding_box.w;
+                resize_anchor_y = bounding_box.y;
+                break;
             }
             take_transform_snapshot ();
         }
 
         private void take_transform_snapshot ()
         {
-            if (sel_shape is Wall) {
-                ((Wall) sel_shape).get_full_snapshot (
-                    out trans_snap_vx, out trans_snap_vy,
-                    out trans_snap_bez_in, out trans_snap_bez_out,
-                    out trans_snap_cox, out trans_snap_coy,
-                    out trans_snap_cix, out trans_snap_ciy);
+            if (selected_shape is Wall) {
+                ((Wall) selected_shape).get_full_snapshot (
+                    out snapshot_vertices_x, out snapshot_vertices_y,
+                    out snapshot_bezier_incoming, out snapshot_bezier_outgoing,
+                    out snapshot_control_outgoing_x, out snapshot_control_outgoing_y,
+                    out snapshot_control_incoming_x, out snapshot_control_incoming_y);
             }
         }
 
-        private void restore_trans_snap (Wall wall)
+        private void restore_transform_snapshot (Wall wall)
         {
             wall.restore_full_snapshot (
-                trans_snap_vx, trans_snap_vy,
-                trans_snap_bez_in, trans_snap_bez_out,
-                trans_snap_cox, trans_snap_coy,
-                trans_snap_cix, trans_snap_ciy);
+                snapshot_vertices_x, snapshot_vertices_y,
+                snapshot_bezier_incoming, snapshot_bezier_outgoing,
+                snapshot_control_outgoing_x, snapshot_control_outgoing_y,
+                snapshot_control_incoming_x, snapshot_control_incoming_y);
         }
 
         private double dist2 (double ax, double ay, double bx, double by)
@@ -939,19 +977,19 @@ namespace Planly
         private bool on_key_pressed (uint keyval, uint keycode, Gdk.ModifierType state)
         {
             if (keyval == Gdk.Key.Shift_L || keyval == Gdk.Key.Shift_R) {
-                shift_pressed = true;
+                is_shift_pressed = true;
             }
 
             // Suprimir figura completa en modo transform
-            if (keyval == Gdk.Key.Delete && sel_mode == 1 && sel_shape != null) {
+            if (keyval == Gdk.Key.Delete && selection_mode == 1 && selected_shape != null) {
                 Shape[] remaining = {};
                 foreach (unowned var s in shapes) {
-                    if (s != sel_shape) remaining += s;
+                    if (s != selected_shape) remaining += s;
                 }
-                shapes       = remaining;
-                sel_shape    = null;
-                sel_mode     = 0;
-                sel_interact = 0;
+                shapes           = remaining;
+                selected_shape   = null;
+                selection_mode   = 0;
+                interaction_type = 0;
                 rebuild_cache ();
                 queue_draw ();
                 metrics_updated ("", "", "");
@@ -960,10 +998,11 @@ namespace Planly
 
             // Suprimir vértice seleccionado en modo edición de vértices
             if (keyval == Gdk.Key.Delete &&
-                sel_mode == 2 && sel_shape is Wall && sel_vertex_idx >= 0) {
-                var del_wall = (Wall) sel_shape;
-                if (del_wall.delete_vertex (sel_vertex_idx)) {
-                    sel_vertex_idx              = -1;
+                selection_mode == 2 && selected_shape is Wall &&
+                selected_vertex_index >= 0) {
+                var del_wall = (Wall) selected_shape;
+                if (del_wall.delete_vertex (selected_vertex_index)) {
+                    selected_vertex_index       = -1;
                     del_wall.selected_vertex    = -1;
                     rebuild_cache ();
                     queue_draw ();
@@ -975,22 +1014,22 @@ namespace Planly
             }
 
             if (keyval == Gdk.Key.Escape) {
-                if (wall_active != null) {
-                    wall_active = null;
+                if (wall_being_drawn != null) {
+                    wall_being_drawn = null;
                     queue_draw ();
                     metrics_updated ("", "", "");
                     return true;
                 }
-                if (sel_shape != null) {
-                    if (sel_mode == 2) {
+                if (selected_shape != null) {
+                    if (selection_mode == 2) {
                         // Volver a modo transform desde modo vértices
-                        sel_interact = 0;
+                        interaction_type = 0;
                         enter_transform_mode ();
                     } else {
                         // Deseleccionar
                         do_select (null);
-                        sel_mode     = 0;
-                        sel_interact = 0;
+                        selection_mode   = 0;
+                        interaction_type = 0;
                         rebuild_cache ();
                         queue_draw ();
                         metrics_updated ("", "", "");
@@ -1000,25 +1039,36 @@ namespace Planly
             }
 
             // Flechas: mover el vértice seleccionado en modo edición
-            if (sel_mode == 2 && sel_shape is Wall && sel_vertex_idx >= 0) {
-                double step  = (state & Gdk.ModifierType.SHIFT_MASK) != 0 ? 10.0 : 1.0;
-                var kwall    = (Wall) sel_shape;
-                double old_x = kwall.get_vertex_x (sel_vertex_idx);
-                double old_y = kwall.get_vertex_y (sel_vertex_idx);
+            if (selection_mode == 2 && selected_shape is Wall && selected_vertex_index >= 0) {
+                double movement_step = (state & Gdk.ModifierType.SHIFT_MASK) != 0 ? 10.0 : 1.0;
+                var keyboard_wall    = (Wall) selected_shape;
+                double old_x = keyboard_wall.get_vertex_x (selected_vertex_index);
+                double old_y = keyboard_wall.get_vertex_y (selected_vertex_index);
                 bool moved   = true;
 
                 switch (keyval) {
-                case Gdk.Key.Up:    kwall.move_vertex (sel_vertex_idx, old_x,          old_y - step); break;
-                case Gdk.Key.Down:  kwall.move_vertex (sel_vertex_idx, old_x,          old_y + step); break;
-                case Gdk.Key.Left:  kwall.move_vertex (sel_vertex_idx, old_x - step,   old_y);        break;
-                case Gdk.Key.Right: kwall.move_vertex (sel_vertex_idx, old_x + step,   old_y);        break;
-                default:            moved = false; break;
+                case Gdk.Key.Up:
+                    keyboard_wall.move_vertex (selected_vertex_index, old_x, old_y - movement_step);
+                    break;
+                case Gdk.Key.Down:
+                    keyboard_wall.move_vertex (selected_vertex_index, old_x, old_y + movement_step);
+                    break;
+                case Gdk.Key.Left:
+                    keyboard_wall.move_vertex (selected_vertex_index, old_x - movement_step, old_y);
+                    break;
+                case Gdk.Key.Right:
+                    keyboard_wall.move_vertex (selected_vertex_index, old_x + movement_step, old_y);
+                    break;
+                default:
+                    moved = false;
+                    break;
                 }
 
                 if (moved) {
                     // Revertir si la nueva posición genera colisión o auto-cruce
-                    if (check_collisions (kwall) || kwall.has_self_intersection ()) {
-                        kwall.move_vertex (sel_vertex_idx, old_x, old_y);
+                    if (check_collisions (keyboard_wall) ||
+                        keyboard_wall.has_self_intersection ()) {
+                        keyboard_wall.move_vertex (selected_vertex_index, old_x, old_y);
                         moved = false;
                     }
                 }
@@ -1026,7 +1076,9 @@ namespace Planly
                 if (moved) {
                     rebuild_cache ();
                     queue_draw ();
-                    metrics_updated (kwall.get_size_px (), kwall.get_size_m (), kwall.get_area_m2 ());
+                    metrics_updated (keyboard_wall.get_size_px (),
+                                     keyboard_wall.get_size_m (),
+                                     keyboard_wall.get_area_m2 ());
                 }
                 return true;
             }
@@ -1037,18 +1089,18 @@ namespace Planly
                 if (keyval == '0')                  { zoom_reset (); return true; }
             }
 
-            if (active != null)      active.on_key_pressed (keyval);
-            if (wall_active != null) wall_active.on_key_pressed (keyval);
+            if (active != null)           active.on_key_pressed (keyval);
+            if (wall_being_drawn != null) wall_being_drawn.on_key_pressed (keyval);
             return false;
         }
 
         private void on_key_released (uint keyval, uint keycode, Gdk.ModifierType state)
         {
             if (keyval == Gdk.Key.Shift_L || keyval == Gdk.Key.Shift_R) {
-                shift_pressed = false;
+                is_shift_pressed = false;
             }
-            if (active != null)      active.on_key_released (keyval);
-            if (wall_active != null) wall_active.on_key_released (keyval);
+            if (active != null)           active.on_key_released (keyval);
+            if (wall_being_drawn != null) wall_being_drawn.on_key_released (keyval);
         }
 
         private bool on_scroll (double dx, double dy)
@@ -1101,17 +1153,17 @@ namespace Planly
             cr.set_source_surface (cache_surface, 0, 0);
             cr.paint ();
 
-            if (wall_active != null)                     wall_active.paint (cr);
+            if (wall_being_drawn != null)                wall_being_drawn.paint (cr);
             if (active != null && active.has_started ()) active.paint (cr);
 
             // Overlay de transformación sólo en modo TRANSFORM
-            if (sel_shape != null && sel_mode == 1) draw_selection_overlay (cr);
+            if (selected_shape != null && selection_mode == 1) draw_selection_overlay (cr);
         }
 
         private void draw_selection_overlay (Cairo.Context cr)
         {
-            var b = sel_shape.get_bbox ();
-            if (b.w < 1.0 && b.h < 1.0) return;
+            var bounding_box = selected_shape.get_bbox ();
+            if (bounding_box.w < 1.0 && bounding_box.h < 1.0) return;
 
             cr.save ();
             cr.set_line_width (1.0);
@@ -1120,13 +1172,15 @@ namespace Planly
             double[] dash = { 5.0, 3.0 };
             cr.set_dash (dash, 0.0);
             cr.set_source_rgba (0.15, 0.4, 0.9, 0.7);
-            cr.rectangle (b.x, b.y, b.w, b.h);
+            cr.rectangle (bounding_box.x, bounding_box.y, bounding_box.w, bounding_box.h);
             cr.stroke ();
             cr.set_dash (new double[0], 0.0);
 
             // 4 esquinas de redimensionado
-            double[] hx = { b.x, b.x + b.w, b.x + b.w, b.x         };
-            double[] hy = { b.y, b.y,        b.y + b.h, b.y + b.h  };
+            double[] hx = { bounding_box.x, bounding_box.x + bounding_box.w,
+                            bounding_box.x + bounding_box.w, bounding_box.x };
+            double[] hy = { bounding_box.y, bounding_box.y,
+                            bounding_box.y + bounding_box.h, bounding_box.y + bounding_box.h };
             for (int i = 0; i < 4; i++) {
                 cr.set_source_rgba (1.0, 1.0, 1.0, 1.0);
                 cr.rectangle (hx[i] - TH_SIZE, hy[i] - TH_SIZE, TH_SIZE * 2, TH_SIZE * 2);
@@ -1137,17 +1191,17 @@ namespace Planly
             }
 
             // Handle de rotación
-            double rx = b.x + b.w / 2.0;
-            double ry = b.y - ROT_DIST;
+            double rotation_handle_x = bounding_box.x + bounding_box.w / 2.0;
+            double rotation_handle_y = bounding_box.y - ROT_DIST;
             cr.set_source_rgba (0.15, 0.4, 0.9, 0.5);
-            cr.move_to (b.x + b.w / 2.0, b.y);
-            cr.line_to (rx, ry);
+            cr.move_to (bounding_box.x + bounding_box.w / 2.0, bounding_box.y);
+            cr.line_to (rotation_handle_x, rotation_handle_y);
             cr.stroke ();
             cr.set_source_rgba (1.0, 1.0, 1.0, 1.0);
-            cr.arc (rx, ry, TH_SIZE + 1, 0, 2.0 * Math.PI);
+            cr.arc (rotation_handle_x, rotation_handle_y, TH_SIZE + 1, 0, 2.0 * Math.PI);
             cr.fill ();
             cr.set_source_rgba (0.15, 0.4, 0.9, 1.0);
-            cr.arc (rx, ry, TH_SIZE + 1, 0, 2.0 * Math.PI);
+            cr.arc (rotation_handle_x, rotation_handle_y, TH_SIZE + 1, 0, 2.0 * Math.PI);
             cr.stroke ();
 
             cr.restore ();

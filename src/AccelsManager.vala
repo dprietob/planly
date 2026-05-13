@@ -1,6 +1,6 @@
 namespace Planly
 {
-    public class AccelsManager
+    public class KeyboardShortcutsSetup
     {
         public static void setup(Application app)
         {

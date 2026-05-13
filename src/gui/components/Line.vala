@@ -11,8 +11,8 @@ namespace Planly
     public class Line : Shape
     {
         // ── Coordenadas ────────────────────────────────────────────────────
-        private double tmp_start_x;
-        private double tmp_start_y;
+        private double pending_start_x;
+        private double pending_start_y;
         private double start_x;
         private double start_y;
         private double end_x;
@@ -20,15 +20,15 @@ namespace Planly
 
         // ── Métricas cacheadas (actualizadas en cada drag) ─────────────────
         private float _length_pixels  = 0f;
-        private float _length_metters = 0f;
+        private float _length_meters  = 0f;
         private float _degrees        = 0f;
 
         // ──────────────────────────────────────────────────────────────────
         public Line ()
         {
-            tmp_start_x = 0; tmp_start_y = 0;
-            start_x     = 0; start_y     = 0;
-            end_x       = 0; end_y       = 0;
+            pending_start_x = 0; pending_start_y = 0;
+            start_x         = 0; start_y         = 0;
+            end_x           = 0; end_y           = 0;
         }
 
         // ── Cálculos geométricos ───────────────────────────────────────────
@@ -53,10 +53,10 @@ namespace Planly
          * Ajusta el punto final al múltiplo de 45° más cercano,
          * conservando la longitud del segmento.
          */
-        private void apply_flatten()
+        private void snap_direction_to_cardinal()
         {
             double len = compute_length_in_pixels();
-            double rad = Utils.snap_angle_deg(compute_degrees()) * Math.PI / 180.0;
+            double rad = DrawingMath.snap_angle_to_cardinal(compute_degrees()) * Math.PI / 180.0;
             end_x = start_x + len * Math.cos(rad);
             end_y = start_y + len * Math.sin(rad);
         }
@@ -99,7 +99,7 @@ namespace Planly
 
         public override string get_size_m()
         {
-            return "%.3f m".printf(_length_metters);
+            return "%.3f m".printf(_length_meters);
         }
 
         public override string get_area_m2()
@@ -115,7 +115,7 @@ namespace Planly
             if (_is_selected) {
                 cr.set_source_rgb(0.8, 0.1, 0.1);
             } else {
-                cr.set_source_rgba(stroke_r, stroke_g, stroke_b, stroke_a);
+                cr.set_source_rgba(stroke_color_red, stroke_color_green, stroke_color_blue, stroke_color_alpha);
             }
 
             cr.move_to(start_x, start_y);
@@ -132,21 +132,21 @@ namespace Planly
 
             // Etiqueta de longitud en el punto medio, desplazada perpendicular al segmento
             if (_length_pixels >= 30.0f) {
-                double mx    = (start_x + end_x) / 2.0;
-                double my    = (start_y + end_y) / 2.0;
-                double angle = Math.atan2(end_y - start_y, end_x - start_x);
-                double perp  = angle - Math.PI / 2.0;
-                double lx    = mx + Math.cos(perp) * 14.0;
-                double ly    = my + Math.sin(perp) * 14.0;
-                paint_label(cr, format_m(_length_metters), lx, ly,
+                double mid_x             = (start_x + end_x) / 2.0;
+                double mid_y             = (start_y + end_y) / 2.0;
+                double angle             = Math.atan2(end_y - start_y, end_x - start_x);
+                double perpendicular_angle = angle - Math.PI / 2.0;
+                double label_x           = mid_x + Math.cos(perpendicular_angle) * 14.0;
+                double label_y           = mid_y + Math.sin(perpendicular_angle) * 14.0;
+                paint_label(cr, format_m(_length_meters), label_x, label_y,
                             Math.atan2(end_y - start_y, end_x - start_x));
             }
         }
 
         public override void on_mouse_pressed(double x, double y)
         {
-            tmp_start_x = x;
-            tmp_start_y = y;
+            pending_start_x = x;
+            pending_start_y = y;
         }
 
         public override void on_mouse_released(double x, double y)
@@ -160,18 +160,18 @@ namespace Planly
             end_y = y;
 
             if (!_has_started) {
-                start_x      = tmp_start_x;
-                start_y      = tmp_start_y;
+                start_x      = pending_start_x;
+                start_y      = pending_start_y;
                 _has_started = true;
             }
 
             if (draw_mode == DrawMode.FLATTEN) {
-                apply_flatten();
+                snap_direction_to_cardinal();
             }
 
-            _length_pixels  = Utils.round(compute_length_in_pixels());
-            _length_metters = Utils.round(Utils.convert_to_metters(compute_length_in_pixels()));
-            _degrees        = Utils.round(compute_degrees());
+            _length_pixels  = DrawingMath.round(compute_length_in_pixels());
+            _length_meters  = DrawingMath.round(DrawingMath.convert_pixels_to_meters(compute_length_in_pixels()));
+            _degrees        = DrawingMath.round(compute_degrees());
         }
     }
 }

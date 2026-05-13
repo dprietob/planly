@@ -23,14 +23,14 @@ namespace Planly
 
         // Estilo: grosor de linea, color de trazo y color de relleno.
         // Publicos para permitir edicion externa desde un futuro panel de propiedades.
-        public double stroke_r   = 0.05;
-        public double stroke_g   = 0.05;
-        public double stroke_b   = 0.05;
-        public double stroke_a   = 1.0;
-        public double fill_r     = 0.28;
-        public double fill_g     = 0.58;
-        public double fill_b     = 0.92;
-        public double fill_a     = 0.18;
+        public double stroke_color_red   = 0.05;
+        public double stroke_color_green = 0.05;
+        public double stroke_color_blue  = 0.05;
+        public double stroke_color_alpha = 1.0;
+        public double fill_color_red     = 0.28;
+        public double fill_color_green   = 0.58;
+        public double fill_color_blue    = 0.92;
+        public double fill_color_alpha   = 0.18;
         public double line_width = 1.5;
 
         // Drawable: estado
@@ -83,7 +83,7 @@ namespace Planly
             return {
                        label,
                        "%.3f px".printf(px),
-                       "%.3f m".printf(Utils.convert_to_metters(px))
+                       "%.3f m".printf(DrawingMath.convert_pixels_to_meters(px))
             };
         }
 
@@ -151,37 +151,37 @@ namespace Planly
             double cx, double cy, double angle = 0.0)
         {
             double font_size = 11.0;
-            double pad       = 2.5;
+            double padding   = 2.5;
 
             // Normalizar: mantener el ángulo en (-π/2, π/2] para legibilidad
-            double a = angle;
-            while (a >  Math.PI / 2.0) a -= Math.PI;
-            while (a < -Math.PI / 2.0) a += Math.PI;
+            double normalized_angle = angle;
+            while (normalized_angle >  Math.PI / 2.0) normalized_angle -= Math.PI;
+            while (normalized_angle < -Math.PI / 2.0) normalized_angle += Math.PI;
 
             cr.save();
             cr.select_font_face("Sans", Cairo.FontSlant.NORMAL, Cairo.FontWeight.NORMAL);
             cr.set_font_size(font_size);
 
-            Cairo.TextExtents te;
-            cr.text_extents(text, out te);
+            Cairo.TextExtents text_extents;
+            cr.text_extents(text, out text_extents);
 
             cr.translate(cx, cy);
-            cr.rotate(a);
+            cr.rotate(normalized_angle);
 
-            double tx = -te.x_bearing - te.width  / 2.0;
-            double ty = -te.y_bearing - te.height / 2.0;
+            double text_x = -text_extents.x_bearing - text_extents.width  / 2.0;
+            double text_y = -text_extents.y_bearing - text_extents.height / 2.0;
 
             // Fondo blanco semitransparente
             cr.set_source_rgba(1.0, 1.0, 1.0, 0.88);
-            cr.rectangle(tx + te.x_bearing - pad,
-                ty + te.y_bearing - pad,
-                te.width  + pad * 2.0,
-                te.height + pad * 2.0);
+            cr.rectangle(text_x + text_extents.x_bearing - padding,
+                text_y + text_extents.y_bearing - padding,
+                text_extents.width  + padding * 2.0,
+                text_extents.height + padding * 2.0);
             cr.fill();
 
             // Texto
             cr.set_source_rgb(0.1, 0.1, 0.1);
-            cr.move_to(tx, ty);
+            cr.move_to(text_x, text_y);
             cr.show_text(text);
 
             cr.restore();

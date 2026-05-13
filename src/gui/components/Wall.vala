@@ -6,13 +6,13 @@ namespace Planly
      * Modelo de handles Bézier
      * ────────────────────────
      * Cada vértice i tiene dos flags independientes:
-     *   _bez_out[i]  → handle saliente: controla el segmento i → i+1
-     *   _bez_in[i]   → handle entrante: controla el segmento i-1 → i
+     *   _bezier_outgoing_active[i]  → handle saliente: controla el segmento i → i+1
+     *   _bezier_incoming_active[i]  → handle entrante: controla el segmento i-1 → i
      *
      * Al borrar el vértice k sólo se limpia:
-     *   _bez_out[prev]  (era para el tramo prev→k, que desaparece)
-     *   _bez_in[next]   (era para el tramo k→next, que desaparece)
-     * …sin tocar _bez_in[prev] ni _bez_out[next].
+     *   _bezier_outgoing_active[prev]  (era para el tramo prev→k, que desaparece)
+     *   _bezier_incoming_active[next]  (era para el tramo k→next, que desaparece)
+     * …sin tocar _bezier_incoming_active[prev] ni _bezier_outgoing_active[next].
      */
     public class Wall : Shape
     {
@@ -31,20 +31,20 @@ namespace Planly
         private const double BEZ_HANDLE_DEFAULT_LEN   = 40.0; // fallback si no hay vecinos
 
         // ── Geometría ─────────────────────────────────────────────────────
-        private double[] _vx = {};
-        private double[] _vy = {};
+        private double[] _vertices_x = {};
+        private double[] _vertices_y = {};
 
         // ── Bézier ────────────────────────────────────────────────────────
-        private bool[]   _bez_in  = {};   // handle entrante activo
-        private bool[]   _bez_out = {};   // handle saliente activo
-        private double[] _cp_ox   = {};   // control point saliente X
-        private double[] _cp_oy   = {};   // control point saliente Y
-        private double[] _cp_ix   = {};   // control point entrante X
-        private double[] _cp_iy   = {};   // control point entrante Y
+        private bool[]   _bezier_incoming_active = {};   // handle entrante activo
+        private bool[]   _bezier_outgoing_active = {};   // handle saliente activo
+        private double[] _control_point_outgoing_x = {}; // control point saliente X
+        private double[] _control_point_outgoing_y = {}; // control point saliente Y
+        private double[] _control_point_incoming_x = {}; // control point entrante X
+        private double[] _control_point_incoming_y = {}; // control point entrante Y
 
         // ── Previsualización ──────────────────────────────────────────────
-        private double _cx = 0.0;
-        private double _cy = 0.0;
+        private double _cursor_x = 0.0;
+        private double _cursor_y = 0.0;
 
         public bool is_drawing { get; private set; default = true; }
         public bool is_closed  { get; private set; default = false; }
@@ -54,9 +54,9 @@ namespace Planly
         public bool preview_blocked  = false;
 
         // ── Métricas ──────────────────────────────────────────────────────
-        private double _len_px  = 0.0;
-        private double _len_m   = 0.0;
-        private double _area_m2 = 0.0;
+        private double _total_length_pixels  = 0.0;
+        private double _total_length_meters  = 0.0;
+        private double _area_square_meters   = 0.0;
 
         // ── Construcción ──────────────────────────────────────────────────
 
@@ -69,47 +69,50 @@ namespace Planly
 
         public void start_draw(double x, double y)
         {
-            _vx = { x }; _vy = { y };
-            _bez_in = { false }; _bez_out = { false };
-            _cp_ox = { 0.0 }; _cp_oy = { 0.0 };
-            _cp_ix = { 0.0 }; _cp_iy = { 0.0 };
-            _cx = x; _cy = y;
+            _vertices_x = { x }; _vertices_y = { y };
+            _bezier_incoming_active = { false }; _bezier_outgoing_active = { false };
+            _control_point_outgoing_x = { 0.0 }; _control_point_outgoing_y = { 0.0 };
+            _control_point_incoming_x = { 0.0 }; _control_point_incoming_y = { 0.0 };
+            _cursor_x = x; _cursor_y = y;
             _has_started = true;
             is_drawing   = true;
         }
 
         public void update_preview(double x, double y)
         {
-            if (draw_mode == DrawMode.FLATTEN && _vx.length > 0) {
-                int i = _vx.length - 1;
-                flatten_point(x, y, _vx[i], _vy[i], out _cx, out _cy);
+            if (draw_mode == DrawMode.FLATTEN && _vertices_x.length > 0) {
+                int i = _vertices_x.length - 1;
+                flatten_point(x, y, _vertices_x[i], _vertices_y[i], out _cursor_x, out _cursor_y);
             } else {
-                _cx = x; _cy = y;
+                _cursor_x = x; _cursor_y = y;
             }
         }
 
         public void add_vertex(double x, double y)
         {
             update_preview(x, y);
-            int last = _vx.length - 1;
-            double dx   = _cx - _vx[last];
-            double dy   = _cy - _vy[last];
+            int last = _vertices_x.length - 1;
+            double dx   = _cursor_x - _vertices_x[last];
+            double dy   = _cursor_y - _vertices_y[last];
             if (Math.sqrt(dx * dx + dy * dy) < MIN_SEG_LEN)  return;
-            _vx += _cx; _vy += _cy;
-            _bez_in += false; _bez_out += false;
-            _cp_ox += 0.0; _cp_oy += 0.0;
-            _cp_ix += 0.0; _cp_iy += 0.0;
+            _vertices_x += _cursor_x; _vertices_y += _cursor_y;
+            _bezier_incoming_active += false; _bezier_outgoing_active += false;
+            _control_point_outgoing_x += 0.0; _control_point_outgoing_y += 0.0;
+            _control_point_incoming_x += 0.0; _control_point_incoming_y += 0.0;
             update_metrics();
         }
 
         public void remove_last_vertex()
         {
-            int n = _vx.length;
+            int n = _vertices_x.length;
             if (n <= 1) return;
-            _vx = _vx[0 : n-1]; _vy = _vy[0 : n-1];
-            _bez_in  = _bez_in[0 : n-1];  _bez_out = _bez_out[0 : n-1];
-            _cp_ox = _cp_ox[0 : n-1]; _cp_oy = _cp_oy[0 : n-1];
-            _cp_ix = _cp_ix[0 : n-1]; _cp_iy = _cp_iy[0 : n-1];
+            _vertices_x = _vertices_x[0 : n-1]; _vertices_y = _vertices_y[0 : n-1];
+            _bezier_incoming_active  = _bezier_incoming_active[0 : n-1];
+            _bezier_outgoing_active  = _bezier_outgoing_active[0 : n-1];
+            _control_point_outgoing_x = _control_point_outgoing_x[0 : n-1];
+            _control_point_outgoing_y = _control_point_outgoing_y[0 : n-1];
+            _control_point_incoming_x = _control_point_incoming_x[0 : n-1];
+            _control_point_incoming_y = _control_point_incoming_y[0 : n-1];
             update_metrics();
         }
 
@@ -125,70 +128,84 @@ namespace Planly
 
         public bool near_first_vertex(double x, double y)
         {
-            if (_vx.length < 3) return false;
-            double dx = x - _vx[0], dy = y - _vy[0];
+            if (_vertices_x.length < 3) return false;
+            double dx = x - _vertices_x[0], dy = y - _vertices_y[0];
             return (dx*dx + dy*dy) <= (SNAP_RADIUS * SNAP_RADIUS);
         }
 
-        public int vertex_count { get { return _vx.length; } }
+        public int vertex_count { get { return _vertices_x.length; } }
 
         // ── Transformaciones ──────────────────────────────────────────────
 
         public override void translate(double dx, double dy)
         {
-            for (int i = 0; i < _vx.length; i++) {
-                _vx[i] += dx; _vy[i] += dy;
-                _cp_ox[i] += dx; _cp_oy[i] += dy;
-                _cp_ix[i] += dx; _cp_iy[i] += dy;
+            for (int i = 0; i < _vertices_x.length; i++) {
+                _vertices_x[i] += dx; _vertices_y[i] += dy;
+                _control_point_outgoing_x[i] += dx; _control_point_outgoing_y[i] += dy;
+                _control_point_incoming_x[i] += dx; _control_point_incoming_y[i] += dy;
             }
-            _cx += dx; _cy += dy;
+            _cursor_x += dx; _cursor_y += dy;
             update_metrics();
         }
 
         public void scale_vertices(double sx, double sy, double ox, double oy)
         {
-            for (int i = 0; i < _vx.length; i++) {
-                _vx[i] = ox + (_vx[i]-ox)*sx; _vy[i] = oy + (_vy[i]-oy)*sy;
-                _cp_ox[i] = ox + (_cp_ox[i]-ox)*sx; _cp_oy[i] = oy + (_cp_oy[i]-oy)*sy;
-                _cp_ix[i] = ox + (_cp_ix[i]-ox)*sx; _cp_iy[i] = oy + (_cp_iy[i]-oy)*sy;
+            for (int i = 0; i < _vertices_x.length; i++) {
+                _vertices_x[i] = ox + (_vertices_x[i]-ox)*sx;
+                _vertices_y[i] = oy + (_vertices_y[i]-oy)*sy;
+                _control_point_outgoing_x[i] = ox + (_control_point_outgoing_x[i]-ox)*sx;
+                _control_point_outgoing_y[i] = oy + (_control_point_outgoing_y[i]-oy)*sy;
+                _control_point_incoming_x[i] = ox + (_control_point_incoming_x[i]-ox)*sx;
+                _control_point_incoming_y[i] = oy + (_control_point_incoming_y[i]-oy)*sy;
             }
             update_metrics();
         }
 
-        public void rotate_vertices(double angle, double cx, double cy)
+        public void rotate_vertices(double angle, double center_x, double center_y)
         {
-            double ca = Math.cos(angle), sa = Math.sin(angle);
-            for (int i = 0; i < _vx.length; i++) {
-                double dx = _vx[i]-cx, dy = _vy[i]-cy;
-                _vx[i] = cx + dx*ca - dy*sa; _vy[i] = cy + dx*sa + dy*ca;
-                double ox = _cp_ox[i]-cx, oy = _cp_oy[i]-cy;
-                _cp_ox[i] = cx + ox*ca - oy*sa; _cp_oy[i] = cy + ox*sa + oy*ca;
-                double ix = _cp_ix[i]-cx, iy = _cp_iy[i]-cy;
-                _cp_ix[i] = cx + ix*ca - iy*sa; _cp_iy[i] = cy + ix*sa + iy*ca;
+            double cos_angle = Math.cos(angle), sin_angle = Math.sin(angle);
+            for (int i = 0; i < _vertices_x.length; i++) {
+                double dx = _vertices_x[i]-center_x, dy = _vertices_y[i]-center_y;
+                _vertices_x[i] = center_x + dx*cos_angle - dy*sin_angle;
+                _vertices_y[i] = center_y + dx*sin_angle + dy*cos_angle;
+                double ox = _control_point_outgoing_x[i]-center_x, oy = _control_point_outgoing_y[i]-center_y;
+                _control_point_outgoing_x[i] = center_x + ox*cos_angle - oy*sin_angle;
+                _control_point_outgoing_y[i] = center_y + ox*sin_angle + oy*cos_angle;
+                double ix = _control_point_incoming_x[i]-center_x, iy = _control_point_incoming_y[i]-center_y;
+                _control_point_incoming_x[i] = center_x + ix*cos_angle - iy*sin_angle;
+                _control_point_incoming_y[i] = center_y + ix*sin_angle + iy*cos_angle;
             }
             update_metrics();
         }
 
-        public void get_full_snapshot(out double[] vx, out double[] vy,
-            out bool[]   bez_in, out bool[]   bez_out,
-            out double[] cox, out double[] coy,
-            out double[] cix, out double[] ciy)
+        public void get_full_snapshot(out double[] vertices_x, out double[] vertices_y,
+            out bool[]   bezier_incoming, out bool[]   bezier_outgoing,
+            out double[] control_outgoing_x, out double[] control_outgoing_y,
+            out double[] control_incoming_x, out double[] control_incoming_y)
         {
-            vx     = _vx[0 : _vx.length];     vy     = _vy[0 : _vy.length];
-            bez_in = _bez_in[0 : _bez_in.length]; bez_out = _bez_out[0 : _bez_out.length];
-            cox = _cp_ox[0 : _cp_ox.length];  coy = _cp_oy[0 : _cp_oy.length];
-            cix = _cp_ix[0 : _cp_ix.length];  ciy = _cp_iy[0 : _cp_iy.length];
+            vertices_x       = _vertices_x[0 : _vertices_x.length];
+            vertices_y       = _vertices_y[0 : _vertices_y.length];
+            bezier_incoming  = _bezier_incoming_active[0 : _bezier_incoming_active.length];
+            bezier_outgoing  = _bezier_outgoing_active[0 : _bezier_outgoing_active.length];
+            control_outgoing_x = _control_point_outgoing_x[0 : _control_point_outgoing_x.length];
+            control_outgoing_y = _control_point_outgoing_y[0 : _control_point_outgoing_y.length];
+            control_incoming_x = _control_point_incoming_x[0 : _control_point_incoming_x.length];
+            control_incoming_y = _control_point_incoming_y[0 : _control_point_incoming_y.length];
         }
 
-        public void restore_full_snapshot(double[] vx, double[] vy,
-            bool[]   bez_in, bool[]   bez_out,
-            double[] cox, double[] coy,
-            double[] cix, double[] ciy)
+        public void restore_full_snapshot(double[] vertices_x, double[] vertices_y,
+            bool[]   bezier_incoming, bool[]   bezier_outgoing,
+            double[] control_outgoing_x, double[] control_outgoing_y,
+            double[] control_incoming_x, double[] control_incoming_y)
         {
-            _vx     = vx[0 : vx.length];       _vy     = vy[0 : vy.length];
-            _bez_in = bez_in[0 : bez_in.length]; _bez_out = bez_out[0 : bez_out.length];
-            _cp_ox = cox[0 : cox.length]; _cp_oy = coy[0 : coy.length];
-            _cp_ix = cix[0 : cix.length]; _cp_iy = ciy[0 : ciy.length];
+            _vertices_x              = vertices_x[0 : vertices_x.length];
+            _vertices_y              = vertices_y[0 : vertices_y.length];
+            _bezier_incoming_active  = bezier_incoming[0 : bezier_incoming.length];
+            _bezier_outgoing_active  = bezier_outgoing[0 : bezier_outgoing.length];
+            _control_point_outgoing_x = control_outgoing_x[0 : control_outgoing_x.length];
+            _control_point_outgoing_y = control_outgoing_y[0 : control_outgoing_y.length];
+            _control_point_incoming_x = control_incoming_x[0 : control_incoming_x.length];
+            _control_point_incoming_y = control_incoming_y[0 : control_incoming_y.length];
             update_metrics();
         }
 
@@ -201,38 +218,47 @@ namespace Planly
          */
         public bool delete_vertex(int idx)
         {
-            int n         = _vx.length;
+            int n         = _vertices_x.length;
             int min_verts = is_closed ? 3 : 2;
             if (n <= min_verts || idx < 0 || idx >= n) return false;
 
             int prev_b = is_closed ? (idx - 1 + n) % n : (idx > 0     ? idx - 1 : -1);
             int next_b = is_closed ? (idx + 1) % n      : (idx < n - 1 ? idx + 1 : -1);
 
-            double[] nvx = {}, nvy = {};
-            bool[]   nbi = {}, nbo = {};
-            double[] ncox = {}, ncoy = {}, ncix = {}, nciy = {};
+            double[] new_vertices_x = {}, new_vertices_y = {};
+            bool[]   new_bezier_incoming = {}, new_bezier_outgoing = {};
+            double[] new_control_outgoing_x = {}, new_control_outgoing_y = {};
+            double[] new_control_incoming_x = {}, new_control_incoming_y = {};
             for (int i = 0; i < n; i++) {
                 if (i == idx) continue;
-                nvx += _vx[i]; nvy += _vy[i];
-                nbi += _bez_in[i]; nbo += _bez_out[i];
-                ncox += _cp_ox[i]; ncoy += _cp_oy[i];
-                ncix += _cp_ix[i]; nciy += _cp_iy[i];
+                new_vertices_x += _vertices_x[i]; new_vertices_y += _vertices_y[i];
+                new_bezier_incoming += _bezier_incoming_active[i];
+                new_bezier_outgoing += _bezier_outgoing_active[i];
+                new_control_outgoing_x += _control_point_outgoing_x[i];
+                new_control_outgoing_y += _control_point_outgoing_y[i];
+                new_control_incoming_x += _control_point_incoming_x[i];
+                new_control_incoming_y += _control_point_incoming_y[i];
             }
-            _vx = nvx; _vy = nvy;
-            _bez_in = nbi; _bez_out = nbo;
-            _cp_ox = ncox; _cp_oy = ncoy;
-            _cp_ix = ncix; _cp_iy = nciy;
+            _vertices_x = new_vertices_x; _vertices_y = new_vertices_y;
+            _bezier_incoming_active = new_bezier_incoming;
+            _bezier_outgoing_active = new_bezier_outgoing;
+            _control_point_outgoing_x = new_control_outgoing_x;
+            _control_point_outgoing_y = new_control_outgoing_y;
+            _control_point_incoming_x = new_control_incoming_x;
+            _control_point_incoming_y = new_control_incoming_y;
 
             // Ajustar índices tras la eliminación
             int new_prev = (prev_b >= 0) ? (prev_b > idx ? prev_b - 1 : prev_b) : -1;
             int new_next = (next_b >= 0) ? (next_b > idx ? next_b - 1 : next_b) : -1;
 
             // Solo limpiar exactamente los handles que apuntaban al vértice borrado:
-            //   - _bez_out[prev]: era el handle saliente de prev hacia idx
-            //   - _bez_in[next]:  era el handle entrante de next desde idx
-            // Los demás (_bez_in[prev], _bez_out[next]) se respetan.
-            if (new_prev >= 0 && new_prev < _vx.length) _bez_out[new_prev] = false;
-            if (new_next >= 0 && new_next < _vx.length) _bez_in[new_next]  = false;
+            //   - _bezier_outgoing_active[prev]: era el handle saliente de prev hacia idx
+            //   - _bezier_incoming_active[next]: era el handle entrante de next desde idx
+            // Los demás (_bezier_incoming_active[prev], _bezier_outgoing_active[next]) se respetan.
+            if (new_prev >= 0 && new_prev < _vertices_x.length)
+                _bezier_outgoing_active[new_prev] = false;
+            if (new_next >= 0 && new_next < _vertices_x.length)
+                _bezier_incoming_active[new_next] = false;
 
             update_metrics();
             return true;
@@ -242,13 +268,15 @@ namespace Planly
             out double proj_x, out double proj_y)
         {
             proj_x = x; proj_y = y;
-            int n = _vx.length, segs = is_closed ? n : n - 1;
-            for (int i = 0; i < segs; i++) {
+            int n = _vertices_x.length, segment_count = is_closed ? n : n - 1;
+            for (int i = 0; i < segment_count; i++) {
                 double x1, y1, x2, y2;
                 if (i < n-1) {
-                    x1=_vx[i]; y1=_vy[i]; x2=_vx[i+1]; y2=_vy[i+1];
+                    x1=_vertices_x[i]; y1=_vertices_y[i];
+                    x2=_vertices_x[i+1]; y2=_vertices_y[i+1];
                 }else {
-                    x1=_vx[n-1]; y1=_vy[n-1]; x2=_vx[0]; y2=_vy[0];
+                    x1=_vertices_x[n-1]; y1=_vertices_y[n-1];
+                    x2=_vertices_x[0]; y2=_vertices_y[0];
                 }
                 double dx=x2-x1, dy=y2-y1, len2=dx*dx+dy*dy;
                 if (len2 < 1.0) continue;
@@ -265,23 +293,38 @@ namespace Planly
         public int insert_vertex(int seg_idx, double x, double y)
         {
             int insert_at = seg_idx + 1;
-            double[] nvx={}, nvy={};
-            bool[]   nbi={}, nbo={};
-            double[] ncox={}, ncoy={}, ncix={}, nciy={};
-            for (int i = 0; i < _vx.length; i++) {
+            double[] new_vertices_x={}, new_vertices_y={};
+            bool[]   new_bezier_incoming={}, new_bezier_outgoing={};
+            double[] new_control_outgoing_x={}, new_control_outgoing_y={};
+            double[] new_control_incoming_x={}, new_control_incoming_y={};
+            for (int i = 0; i < _vertices_x.length; i++) {
                 if (i == insert_at) {
-                    nvx+=x; nvy+=y; nbi+=false; nbo+=false;
-                    ncox+=0.0; ncoy+=0.0; ncix+=0.0; nciy+=0.0;
+                    new_vertices_x+=x; new_vertices_y+=y;
+                    new_bezier_incoming+=false; new_bezier_outgoing+=false;
+                    new_control_outgoing_x+=0.0; new_control_outgoing_y+=0.0;
+                    new_control_incoming_x+=0.0; new_control_incoming_y+=0.0;
                 }
-                nvx+=_vx[i]; nvy+=_vy[i]; nbi+=_bez_in[i]; nbo+=_bez_out[i];
-                ncox+=_cp_ox[i]; ncoy+=_cp_oy[i]; ncix+=_cp_ix[i]; nciy+=_cp_iy[i];
+                new_vertices_x+=_vertices_x[i]; new_vertices_y+=_vertices_y[i];
+                new_bezier_incoming+=_bezier_incoming_active[i];
+                new_bezier_outgoing+=_bezier_outgoing_active[i];
+                new_control_outgoing_x+=_control_point_outgoing_x[i];
+                new_control_outgoing_y+=_control_point_outgoing_y[i];
+                new_control_incoming_x+=_control_point_incoming_x[i];
+                new_control_incoming_y+=_control_point_incoming_y[i];
             }
-            if (insert_at >= _vx.length) {
-                nvx+=x; nvy+=y; nbi+=false; nbo+=false;
-                ncox+=0.0; ncoy+=0.0; ncix+=0.0; nciy+=0.0;
+            if (insert_at >= _vertices_x.length) {
+                new_vertices_x+=x; new_vertices_y+=y;
+                new_bezier_incoming+=false; new_bezier_outgoing+=false;
+                new_control_outgoing_x+=0.0; new_control_outgoing_y+=0.0;
+                new_control_incoming_x+=0.0; new_control_incoming_y+=0.0;
             }
-            _vx=nvx; _vy=nvy; _bez_in=nbi; _bez_out=nbo;
-            _cp_ox=ncox; _cp_oy=ncoy; _cp_ix=ncix; _cp_iy=nciy;
+            _vertices_x=new_vertices_x; _vertices_y=new_vertices_y;
+            _bezier_incoming_active=new_bezier_incoming;
+            _bezier_outgoing_active=new_bezier_outgoing;
+            _control_point_outgoing_x=new_control_outgoing_x;
+            _control_point_outgoing_y=new_control_outgoing_y;
+            _control_point_incoming_x=new_control_incoming_x;
+            _control_point_incoming_y=new_control_incoming_y;
             update_metrics();
             return insert_at;
         }
@@ -289,8 +332,8 @@ namespace Planly
         public int find_vertex(double x, double y)
         {
             double tol2 = HANDLE_RADIUS * HANDLE_RADIUS * 4.0;
-            for (int i = 0; i < _vx.length; i++) {
-                double dx=x-_vx[i], dy=y-_vy[i];
+            for (int i = 0; i < _vertices_x.length; i++) {
+                double dx=x-_vertices_x[i], dy=y-_vertices_y[i];
                 if (dx*dx+dy*dy <= tol2) return i;
             }
             return -1;
@@ -298,21 +341,21 @@ namespace Planly
 
         public double get_vertex_x(int idx)
         {
-            return (idx>=0 && idx<_vx.length) ? _vx[idx] : 0.0;
+            return (idx>=0 && idx<_vertices_x.length) ? _vertices_x[idx] : 0.0;
         }
 
         public double get_vertex_y(int idx)
         {
-            return (idx>=0 && idx<_vy.length) ? _vy[idx] : 0.0;
+            return (idx>=0 && idx<_vertices_y.length) ? _vertices_y[idx] : 0.0;
         }
 
         public void move_vertex(int idx, double x, double y)
         {
-            if (idx < 0 || idx >= _vx.length) return;
-            double dx=x-_vx[idx], dy=y-_vy[idx];
-            _vx[idx]=x; _vy[idx]=y;
-            _cp_ox[idx]+=dx; _cp_oy[idx]+=dy;
-            _cp_ix[idx]+=dx; _cp_iy[idx]+=dy;
+            if (idx < 0 || idx >= _vertices_x.length) return;
+            double dx=x-_vertices_x[idx], dy=y-_vertices_y[idx];
+            _vertices_x[idx]=x; _vertices_y[idx]=y;
+            _control_point_outgoing_x[idx]+=dx; _control_point_outgoing_y[idx]+=dy;
+            _control_point_incoming_x[idx]+=dx; _control_point_incoming_y[idx]+=dy;
             update_metrics();
         }
 
@@ -320,28 +363,30 @@ namespace Planly
 
         public void toggle_bezier(int idx)
         {
-            if (idx < 0 || idx >= _vx.length) return;
-            bool was = _bez_in[idx] || _bez_out[idx];
+            if (idx < 0 || idx >= _vertices_x.length) return;
+            bool was = _bezier_incoming_active[idx] || _bezier_outgoing_active[idx];
             if (was) {
-                _bez_in[idx] = false; _bez_out[idx] = false;
+                _bezier_incoming_active[idx] = false; _bezier_outgoing_active[idx] = false;
             } else {
-                _bez_in[idx] = true; _bez_out[idx] = true;
-                int n    = _vx.length;
+                _bezier_incoming_active[idx] = true; _bezier_outgoing_active[idx] = true;
+                int n    = _vertices_x.length;
                 int prev = is_closed ? (idx-1+n)%n : (idx>0     ? idx-1 : idx);
                 int next = is_closed ? (idx+1)%n    : (idx<n-1   ? idx+1 : idx);
                 double tx=0.0, ty=0.0;
                 if (prev != idx) {
-                    double pd=Math.sqrt((_vx[idx]-_vx[prev])*(_vx[idx]-_vx[prev]) + (_vy[idx]-_vy[prev])*
-                            (_vy[idx]-_vy[prev]));
+                    double pd=Math.sqrt((_vertices_x[idx]-_vertices_x[prev])*(_vertices_x[idx]-_vertices_x[prev]) +
+                            (_vertices_y[idx]-_vertices_y[prev])*(_vertices_y[idx]-_vertices_y[prev]));
                     if (pd>0) {
-                        tx+=(_vx[idx]-_vx[prev])/pd; ty+=(_vy[idx]-_vy[prev])/pd;
+                        tx+=(_vertices_x[idx]-_vertices_x[prev])/pd;
+                        ty+=(_vertices_y[idx]-_vertices_y[prev])/pd;
                     }
                 }
                 if (next != idx) {
-                    double nd=Math.sqrt((_vx[next]-_vx[idx])*(_vx[next]-_vx[idx]) + (_vy[next]-_vy[idx])*
-                            (_vy[next]-_vy[idx]));
+                    double nd=Math.sqrt((_vertices_x[next]-_vertices_x[idx])*(_vertices_x[next]-_vertices_x[idx]) +
+                            (_vertices_y[next]-_vertices_y[idx])*(_vertices_y[next]-_vertices_y[idx]));
                     if (nd>0) {
-                        tx+=(_vx[next]-_vx[idx])/nd; ty+=(_vy[next]-_vy[idx])/nd;
+                        tx+=(_vertices_x[next]-_vertices_x[idx])/nd;
+                        ty+=(_vertices_y[next]-_vertices_y[idx])/nd;
                     }
                 }
                 double tl=Math.sqrt(tx*tx+ty*ty);
@@ -352,16 +397,20 @@ namespace Planly
                 }
                 double total=0.0; int cnt=0;
                 if (prev!=idx) {
-                    double d=Math.sqrt((_vx[idx]-_vx[prev])*(_vx[idx]-_vx[prev])+(_vy[idx]-_vy[prev])*
-                            (_vy[idx]-_vy[prev])); total+=d; cnt++;
+                    double d=Math.sqrt((_vertices_x[idx]-_vertices_x[prev])*(_vertices_x[idx]-_vertices_x[prev])+
+                            (_vertices_y[idx]-_vertices_y[prev])*(_vertices_y[idx]-_vertices_y[prev]));
+                    total+=d; cnt++;
                 }
                 if (next!=idx) {
-                    double d=Math.sqrt((_vx[next]-_vx[idx])*(_vx[next]-_vx[idx])+(_vy[next]-_vy[idx])*
-                            (_vy[next]-_vy[idx])); total+=d; cnt++;
+                    double d=Math.sqrt((_vertices_x[next]-_vertices_x[idx])*(_vertices_x[next]-_vertices_x[idx])+
+                            (_vertices_y[next]-_vertices_y[idx])*(_vertices_y[next]-_vertices_y[idx]));
+                    total+=d; cnt++;
                 }
                 double len = (cnt > 0) ? (total / cnt) / BEZ_HANDLE_FRAC : BEZ_HANDLE_DEFAULT_LEN;
-                _cp_ox[idx]=_vx[idx]+tx*len; _cp_oy[idx]=_vy[idx]+ty*len;
-                _cp_ix[idx]=_vx[idx]-tx*len; _cp_iy[idx]=_vy[idx]-ty*len;
+                _control_point_outgoing_x[idx]=_vertices_x[idx]+tx*len;
+                _control_point_outgoing_y[idx]=_vertices_y[idx]+ty*len;
+                _control_point_incoming_x[idx]=_vertices_x[idx]-tx*len;
+                _control_point_incoming_y[idx]=_vertices_y[idx]-ty*len;
             }
             update_metrics();
         }
@@ -370,15 +419,15 @@ namespace Planly
         {
             is_out = false;
             double tol2 = BEZ_HANDLE_R * BEZ_HANDLE_R * 4.0;
-            for (int i = 0; i < _vx.length; i++) {
-                if (_bez_out[i]) {
-                    double dox=x-_cp_ox[i], doy=y-_cp_oy[i];
+            for (int i = 0; i < _vertices_x.length; i++) {
+                if (_bezier_outgoing_active[i]) {
+                    double dox=x-_control_point_outgoing_x[i], doy=y-_control_point_outgoing_y[i];
                     if (dox*dox+doy*doy<=tol2) {
                         is_out=true;  return i;
                     }
                 }
-                if (_bez_in[i]) {
-                    double dix=x-_cp_ix[i], diy=y-_cp_iy[i];
+                if (_bezier_incoming_active[i]) {
+                    double dix=x-_control_point_incoming_x[i], diy=y-_control_point_incoming_y[i];
                     if (dix*dix+diy*diy<=tol2) {
                         is_out=false; return i;
                     }
@@ -389,14 +438,16 @@ namespace Planly
 
         public void move_bezier_cp(int idx, bool is_out, double x, double y)
         {
-            if (idx < 0 || idx >= _vx.length) return;
-            double vx=_vx[idx], vy=_vy[idx];
+            if (idx < 0 || idx >= _vertices_x.length) return;
+            double vertex_x=_vertices_x[idx], vertex_y=_vertices_y[idx];
             if (is_out) {
-                _cp_ox[idx]=x; _cp_oy[idx]=y;
-                _cp_ix[idx]=2*vx-x; _cp_iy[idx]=2*vy-y;
+                _control_point_outgoing_x[idx]=x; _control_point_outgoing_y[idx]=y;
+                _control_point_incoming_x[idx]=2*vertex_x-x;
+                _control_point_incoming_y[idx]=2*vertex_y-y;
             } else {
-                _cp_ix[idx]=x; _cp_iy[idx]=y;
-                _cp_ox[idx]=2*vx-x; _cp_oy[idx]=2*vy-y;
+                _control_point_incoming_x[idx]=x; _control_point_incoming_y[idx]=y;
+                _control_point_outgoing_x[idx]=2*vertex_x-x;
+                _control_point_outgoing_y[idx]=2*vertex_y-y;
             }
             update_metrics();
         }
@@ -417,12 +468,12 @@ namespace Planly
             int from_idx,
             bool closing = false)
         {
-            int n = _vx.length;
+            int n = _vertices_x.length;
             for (int i = 0; i < n - 1; i++) {
                 if (from_idx > 0 && i == from_idx - 1) continue; // adyacente al inicio
                 if (closing && i == 0)                  continue; // adyacente al cierre (V0)
                 if (segs_cross(x1, y1, x2, y2,
-                    _vx[i], _vy[i], _vx[i+1], _vy[i+1])) {
+                    _vertices_x[i], _vertices_y[i], _vertices_x[i+1], _vertices_y[i+1])) {
                     return true;
                 }
             }
@@ -436,21 +487,21 @@ namespace Planly
          */
         public bool has_self_intersection()
         {
-            int n    = _vx.length;
-            int segs = is_closed ? n : n - 1;
-            if (segs < 3) return false;
+            int n    = _vertices_x.length;
+            int segment_count = is_closed ? n : n - 1;
+            if (segment_count < 3) return false;
 
-            for (int i = 0; i < segs; i++) {
+            for (int i = 0; i < segment_count; i++) {
                 int ni = (i + 1) % n;
-                double ax = _vx[i], ay = _vy[i];
-                double bx = _vx[ni], by = _vy[ni];
+                double segment_a_x = _vertices_x[i], segment_a_y = _vertices_y[i];
+                double segment_b_x = _vertices_x[ni], segment_b_y = _vertices_y[ni];
 
-                for (int j = i + 2; j < segs; j++) {
+                for (int j = i + 2; j < segment_count; j++) {
                     // Para polígono cerrado: (Sc, S0) son adyacentes, saltar
-                    if (is_closed && i == 0 && j == segs - 1) continue;
+                    if (is_closed && i == 0 && j == segment_count - 1) continue;
                     int nj = (j + 1) % n;
-                    if (segs_cross(ax, ay, bx, by,
-                        _vx[j], _vy[j], _vx[nj], _vy[nj])) {
+                    if (segs_cross(segment_a_x, segment_a_y, segment_b_x, segment_b_y,
+                        _vertices_x[j], _vertices_y[j], _vertices_x[nj], _vertices_y[nj])) {
                         return true;
                     }
                 }
@@ -459,14 +510,14 @@ namespace Planly
         }
 
         /**
-         * Devuelve true si alguno de los puntos (vx[i], vy[i]) caería dentro de
+         * Devuelve true si alguno de los puntos (vertices_x[i], vertices_y[i]) caería dentro de
          * este polígono (evaluado como contorno cerrado aunque is_closed sea false).
          * Se usa para impedir dibujar un polígono que encierre a una figura existente.
          */
-        public bool encloses_any_of(double[] vx, double[] vy)
+        public bool encloses_any_of(double[] vertices_x, double[] vertices_y)
         {
-            for (int i = 0; i < vx.length; i++) {
-                if (point_in_polygon(vx[i], vy[i]))  return true;
+            for (int i = 0; i < vertices_x.length; i++) {
+                if (point_in_polygon(vertices_x[i], vertices_y[i]))  return true;
             }
             return false;
         }
@@ -500,23 +551,27 @@ namespace Planly
          */
         public bool collides_with(Wall other)
         {
-            double[] ax, ay, bx, by;
-            get_outline_pts(out ax, out ay);
-            other.get_outline_pts(out bx, out by);
+            double[] outline_a_x, outline_a_y, outline_b_x, outline_b_y;
+            get_outline_pts(out outline_a_x, out outline_a_y);
+            other.get_outline_pts(out outline_b_x, out outline_b_y);
 
-            int na = ax.length, nb = bx.length;
+            int outline_a_length = outline_a_x.length, outline_b_length = outline_b_x.length;
 
-            for (int i = 0; i < na - 1; i++) {
-                for (int j = 0; j < nb - 1; j++) {
-                    if (segs_cross(ax[i], ay[i], ax[i+1], ay[i+1],
-                        bx[j], by[j], bx[j+1], by[j+1])) {
+            for (int i = 0; i < outline_a_length - 1; i++) {
+                for (int j = 0; j < outline_b_length - 1; j++) {
+                    if (segs_cross(outline_a_x[i], outline_a_y[i],
+                                   outline_a_x[i+1], outline_a_y[i+1],
+                                   outline_b_x[j], outline_b_y[j],
+                                   outline_b_x[j+1], outline_b_y[j+1])) {
                         return true;
                     }
                 }
             }
 
-            if (is_closed       && nb > 0 && point_in_polygon(bx[0], by[0]))  return true;
-            if (other.is_closed && na > 0 && other.point_in_polygon(ax[0], ay[0]))  return true;
+            if (is_closed && outline_b_length > 0 &&
+                point_in_polygon(outline_b_x[0], outline_b_y[0]))  return true;
+            if (other.is_closed && outline_a_length > 0 &&
+                other.point_in_polygon(outline_a_x[0], outline_a_y[0]))  return true;
 
             return false;
         }
@@ -528,31 +583,37 @@ namespace Planly
         private void get_outline_pts(out double[] ox, out double[] oy)
         {
             double[] px = {}, py = {};
-            int n = _vx.length;
+            int n = _vertices_x.length;
             if (n == 0) {
                 ox = px; oy = py; return;
             }
 
-            px += _vx[0]; py += _vy[0];
-            int segs = is_closed ? n : n - 1;
+            px += _vertices_x[0]; py += _vertices_y[0];
+            int segment_count = is_closed ? n : n - 1;
 
-            for (int i = 0; i < segs; i++) {
+            for (int i = 0; i < segment_count; i++) {
                 int to = (i < n - 1) ? i + 1 : 0;
-                if (_bez_out[i] || _bez_in[to]) {
-                    double p0x = _vx[i], p0y = _vy[i];
-                    double p3x = _vx[to], p3y = _vy[to];
-                    double p1x = _bez_out[i] ? _cp_ox[i]  : p0x;
-                    double p1y = _bez_out[i] ? _cp_oy[i]  : p0y;
-                    double p2x = _bez_in[to] ? _cp_ix[to] : p3x;
-                    double p2y = _bez_in[to] ? _cp_iy[to] : p3y;
+                if (_bezier_outgoing_active[i] || _bezier_incoming_active[to]) {
+                    double point0_x = _vertices_x[i], point0_y = _vertices_y[i];
+                    double point3_x = _vertices_x[to], point3_y = _vertices_y[to];
+                    double point1_x = _bezier_outgoing_active[i]
+                        ? _control_point_outgoing_x[i] : point0_x;
+                    double point1_y = _bezier_outgoing_active[i]
+                        ? _control_point_outgoing_y[i] : point0_y;
+                    double point2_x = _bezier_incoming_active[to]
+                        ? _control_point_incoming_x[to] : point3_x;
+                    double point2_y = _bezier_incoming_active[to]
+                        ? _control_point_incoming_y[to] : point3_y;
                     const int N = BEZ_OUTLINE_SAMPLES;
                     for (int k = 1; k <= N; k++) {
                         double t = (double)k / N, mt = 1.0 - t;
-                        px += mt*mt*mt*p0x + 3*mt*mt*t*p1x + 3*mt*t*t*p2x + t*t*t*p3x;
-                        py += mt*mt*mt*p0y + 3*mt*mt*t*p1y + 3*mt*t*t*p2y + t*t*t*p3y;
+                        px += mt*mt*mt*point0_x + 3*mt*mt*t*point1_x
+                            + 3*mt*t*t*point2_x + t*t*t*point3_x;
+                        py += mt*mt*mt*point0_y + 3*mt*mt*t*point1_y
+                            + 3*mt*t*t*point2_y + t*t*t*point3_y;
                     }
                 } else {
-                    px += _vx[to]; py += _vy[to];
+                    px += _vertices_x[to]; py += _vertices_y[to];
                 }
             }
             ox = px; oy = py;
@@ -587,22 +648,25 @@ namespace Planly
 
         public override double[] get_snap_xs()
         {
-            return _vx;
+            return _vertices_x;
         }
 
         public override double[] get_snap_ys()
         {
-            return _vy;
+            return _vertices_y;
         }
 
         public override BBoxRect get_bbox()
         {
-            int n = _vx.length;
+            int n = _vertices_x.length;
             if (n == 0) return { 0.0, 0.0, 0.0, 0.0 };
-            double min_x=_vx[0], max_x=_vx[0], min_y=_vy[0], max_y=_vy[0];
+            double min_x=_vertices_x[0], max_x=_vertices_x[0];
+            double min_y=_vertices_y[0], max_y=_vertices_y[0];
             for (int i = 1; i < n; i++) {
-                if (_vx[i]<min_x) min_x=_vx[i]; if (_vx[i]>max_x) max_x=_vx[i];
-                if (_vy[i]<min_y) min_y=_vy[i]; if (_vy[i]>max_y) max_y=_vy[i];
+                if (_vertices_x[i]<min_x) min_x=_vertices_x[i];
+                if (_vertices_x[i]>max_x) max_x=_vertices_x[i];
+                if (_vertices_y[i]<min_y) min_y=_vertices_y[i];
+                if (_vertices_y[i]>max_y) max_y=_vertices_y[i];
             }
             return { min_x, min_y, max_x-min_x, max_y-min_y };
         }
@@ -615,77 +679,86 @@ namespace Planly
             double dx = mx - ox, dy = my - oy;
             double len = Math.sqrt(dx*dx + dy*dy);
             if (len < 1.0) { rx = ox; ry = oy; return; }
-            double rad = Utils.snap_angle_deg(Math.atan2(dy, dx) * 180.0 / Math.PI) * Math.PI / 180.0;
+            double rad = DrawingMath.snap_angle_to_cardinal(
+                Math.atan2(dy, dx) * 180.0 / Math.PI) * Math.PI / 180.0;
             rx = ox + len * Math.cos(rad);
             ry = oy + len * Math.sin(rad);
         }
 
         private void update_metrics()
         {
-            int n = _vx.length;
-            _len_px = 0.0;
-            for (int i = 0; i < n-1; i++) _len_px += seg_arc_length(i, i+1);
-            if (is_closed && n >= 2)       _len_px += seg_arc_length(n-1, 0);
-            _len_m = Utils.convert_to_metters(_len_px);
+            int n = _vertices_x.length;
+            _total_length_pixels = 0.0;
+            for (int i = 0; i < n-1; i++) _total_length_pixels += seg_arc_length(i, i+1);
+            if (is_closed && n >= 2) _total_length_pixels += seg_arc_length(n-1, 0);
+            _total_length_meters = DrawingMath.convert_pixels_to_meters(_total_length_pixels);
             if (is_closed && n >= 3) {
                 double area = 0.0;
                 for (int i = 0; i < n; i++) area += seg_area_term(i, (i+1)%n);
                 double scale = (double) MEASURE_IN_PIXELS;
-                _area_m2 = Math.fabs(area) / (2.0 * scale * scale);
+                _area_square_meters = Math.fabs(area) / (2.0 * scale * scale);
             } else {
-                _area_m2 = 0.0;
+                _area_square_meters = 0.0;
             }
         }
 
         private double seg_arc_length(int from, int to)
         {
-            if (!_bez_out[from] && !_bez_in[to]) {
-                double dx=_vx[to]-_vx[from], dy=_vy[to]-_vy[from];
+            if (!_bezier_outgoing_active[from] && !_bezier_incoming_active[to]) {
+                double dx=_vertices_x[to]-_vertices_x[from],
+                       dy=_vertices_y[to]-_vertices_y[from];
                 return Math.sqrt(dx*dx+dy*dy);
             }
             return bez_arc_length(
-                _vx[from], _vy[from],
-                _bez_out[from] ? _cp_ox[from] : _vx[from],
-                _bez_out[from] ? _cp_oy[from] : _vy[from],
-                _bez_in[to]    ? _cp_ix[to]   : _vx[to],
-                _bez_in[to]    ? _cp_iy[to]   : _vy[to],
-                _vx[to], _vy[to]);
+                _vertices_x[from], _vertices_y[from],
+                _bezier_outgoing_active[from]
+                    ? _control_point_outgoing_x[from] : _vertices_x[from],
+                _bezier_outgoing_active[from]
+                    ? _control_point_outgoing_y[from] : _vertices_y[from],
+                _bezier_incoming_active[to]
+                    ? _control_point_incoming_x[to] : _vertices_x[to],
+                _bezier_incoming_active[to]
+                    ? _control_point_incoming_y[to] : _vertices_y[to],
+                _vertices_x[to], _vertices_y[to]);
         }
 
-        private double bez_arc_length(double p0x, double p0y,
-            double p1x, double p1y,
-            double p2x, double p2y,
-            double p3x, double p3y)
+        private double bez_arc_length(double point0_x, double point0_y,
+            double point1_x, double point1_y,
+            double point2_x, double point2_y,
+            double point3_x, double point3_y)
         {
             const int N = ARC_LENGTH_SAMPLES;
-            double len=0.0, px=p0x, py=p0y;
+            double arc_length=0.0, px=point0_x, py=point0_y;
             for (int i = 1; i <= N; i++) {
                 double t=(double)i/N, mt=1.0-t;
-                double bx=mt*mt*mt*p0x+3*mt*mt*t*p1x+3*mt*t*t*p2x+t*t*t*p3x;
-                double by=mt*mt*mt*p0y+3*mt*mt*t*p1y+3*mt*t*t*p2y+t*t*t*p3y;
+                double bx=mt*mt*mt*point0_x+3*mt*mt*t*point1_x
+                         +3*mt*t*t*point2_x+t*t*t*point3_x;
+                double by=mt*mt*mt*point0_y+3*mt*mt*t*point1_y
+                         +3*mt*t*t*point2_y+t*t*t*point3_y;
                 double dx=bx-px, dy=by-py;
-                len+=Math.sqrt(dx*dx+dy*dy);
+                arc_length+=Math.sqrt(dx*dx+dy*dy);
                 px=bx; py=by;
             }
-            return len;
+            return arc_length;
         }
 
         private double seg_area_term(int from, int to)
         {
-            if (!_bez_out[from] && !_bez_in[to]) {
-                return _vx[from]*_vy[to] - _vx[to]*_vy[from];
+            if (!_bezier_outgoing_active[from] && !_bezier_incoming_active[to]) {
+                return _vertices_x[from]*_vertices_y[to] - _vertices_x[to]*_vertices_y[from];
             }
-            double p0x=_vx[from], p0y=_vy[from], p3x=_vx[to], p3y=_vy[to];
-            double p1x=_bez_out[from] ? _cp_ox[from] : p0x;
-            double p1y=_bez_out[from] ? _cp_oy[from] : p0y;
-            double p2x=_bez_in[to]    ? _cp_ix[to]   : p3x;
-            double p2y=_bez_in[to]    ? _cp_iy[to]   : p3y;
+            double point0_x=_vertices_x[from], point0_y=_vertices_y[from];
+            double point3_x=_vertices_x[to], point3_y=_vertices_y[to];
+            double point1_x=_bezier_outgoing_active[from] ? _control_point_outgoing_x[from] : point0_x;
+            double point1_y=_bezier_outgoing_active[from] ? _control_point_outgoing_y[from] : point0_y;
+            double point2_x=_bezier_incoming_active[to]   ? _control_point_incoming_x[to]   : point3_x;
+            double point2_y=_bezier_incoming_active[to]   ? _control_point_incoming_y[to]   : point3_y;
             const int N=20;
-            double term=0.0, px=p0x, py=p0y;
+            double term=0.0, px=point0_x, py=point0_y;
             for (int i = 1; i <= N; i++) {
                 double t=(double)i/N, mt=1.0-t;
-                double bx=mt*mt*mt*p0x+3*mt*mt*t*p1x+3*mt*t*t*p2x+t*t*t*p3x;
-                double by=mt*mt*mt*p0y+3*mt*mt*t*p1y+3*mt*t*t*p2y+t*t*t*p3y;
+                double bx=mt*mt*mt*point0_x+3*mt*mt*t*point1_x+3*mt*t*t*point2_x+t*t*t*point3_x;
+                double by=mt*mt*mt*point0_y+3*mt*mt*t*point1_y+3*mt*t*t*point2_y+t*t*t*point3_y;
                 term+=px*by-bx*py; px=bx; py=by;
             }
             return term;
@@ -695,21 +768,24 @@ namespace Planly
 
         public override bool contains_point(double x, double y)
         {
-            double tol=8.0; int n=_vx.length;
+            double tol=8.0; int n=_vertices_x.length;
             for (int i=0; i<n-1; i++)
-                if (near_segment(x, y, _vx[i], _vy[i], _vx[i+1], _vy[i+1], tol))return true;
+                if (near_segment(x, y, _vertices_x[i], _vertices_y[i],
+                                 _vertices_x[i+1], _vertices_y[i+1], tol)) return true;
             if (is_closed && n>=2) {
-                if (near_segment(x, y, _vx[n-1], _vy[n-1], _vx[0], _vy[0], tol))return true;
-                if (point_in_polygon(x, y))return true;
+                if (near_segment(x, y, _vertices_x[n-1], _vertices_y[n-1],
+                                 _vertices_x[0], _vertices_y[0], tol)) return true;
+                if (point_in_polygon(x, y)) return true;
             }
             return false;
         }
 
         private bool point_in_polygon(double x, double y)
         {
-            int n=_vx.length; bool inside=false; int j=n-1;
+            int n=_vertices_x.length; bool inside=false; int j=n-1;
             for (int i=0; i<n; i++) {
-                double xi=_vx[i], yi=_vy[i], xj=_vx[j], yj=_vy[j];
+                double xi=_vertices_x[i], yi=_vertices_y[i];
+                double xj=_vertices_x[j], yj=_vertices_y[j];
                 if (((yi>y)!=(yj>y)) && (x<(xj-xi)*(y-yi)/(yj-yi)+xi)) inside=!inside;
                 j=i;
             }
@@ -731,16 +807,16 @@ namespace Planly
 
         public override bool is_valid()
         {
-            return _vx.length >= 2;
+            return _vertices_x.length >= 2;
         }
 
         // ── Métricas ──────────────────────────────────────────────────────
 
         public override MetricLine[] get_metrics()
         {
-            MetricLine[] m = { metric_px_m(_("Longitud total"), _len_px) };
-            if (is_closed && _area_m2 > 0) {
-                MetricLine a = { _("Área"), "", "%.3f m²".printf(_area_m2) };
+            MetricLine[] m = { metric_px_m(_("Longitud total"), _total_length_pixels) };
+            if (is_closed && _area_square_meters > 0) {
+                MetricLine a = { _("Área"), "", "%.3f m²".printf(_area_square_meters) };
                 m += a;
             }
             return m;
@@ -748,17 +824,17 @@ namespace Planly
 
         public override string get_size_px()
         {
-            return "%.1f px".printf(_len_px);
+            return "%.1f px".printf(_total_length_pixels);
         }
 
         public override string get_size_m()
         {
-            return "%.3f m".printf(_len_m);
+            return "%.3f m".printf(_total_length_meters);
         }
 
         public override string get_area_m2()
         {
-            if (is_closed && _area_m2>0) return "%.3f m²".printf(_area_m2);
+            if (is_closed && _area_square_meters>0) return "%.3f m²".printf(_area_square_meters);
             return "";
         }
 
@@ -766,25 +842,29 @@ namespace Planly
 
         public override void paint(Cairo.Context cr)
         {
-            int n = _vx.length;
+            int n = _vertices_x.length;
             if (n == 0) return;
             cr.save();
             cr.set_line_cap(Cairo.LineCap.ROUND);
             cr.set_line_join(Cairo.LineJoin.ROUND);
 
             if (is_closed && n >= 3) {
-                cr.move_to(_vx[0], _vy[0]);
+                cr.move_to(_vertices_x[0], _vertices_y[0]);
                 for (int i=0; i<n-1; i++) paint_seg(cr, i, i+1);
                 paint_seg(cr, n-1, 0);
-                cr.set_source_rgba(fill_r, fill_g, fill_b, fill_a);
+                cr.set_source_rgba(fill_color_red, fill_color_green,
+                                   fill_color_blue, fill_color_alpha);
                 cr.fill();
             }
 
             cr.set_line_width(WALL_LINE_W);
-            cr.set_source_rgba(_is_selected?0.8:stroke_r, _is_selected?0.1:stroke_g,
-                _is_selected?0.1:stroke_b, 1.0);
+            cr.set_source_rgba(
+                _is_selected ? 0.8 : stroke_color_red,
+                _is_selected ? 0.1 : stroke_color_green,
+                _is_selected ? 0.1 : stroke_color_blue,
+                1.0);
             if (n >= 2) {
-                cr.move_to(_vx[0], _vy[0]);
+                cr.move_to(_vertices_x[0], _vertices_y[0]);
                 for (int i=0; i<n-1; i++) paint_seg(cr, i, i+1);
                 if (is_closed) paint_seg(cr, n-1, 0);
                 cr.stroke();
@@ -798,9 +878,11 @@ namespace Planly
                 if (preview_blocked) {
                     cr.set_source_rgba(0.85, 0.1, 0.1, 0.85);
                 } else {
-                    cr.set_source_rgba(stroke_r, stroke_g, stroke_b, stroke_a*0.6);
+                    cr.set_source_rgba(stroke_color_red, stroke_color_green,
+                                       stroke_color_blue, stroke_color_alpha*0.6);
                 }
-                cr.move_to(_vx[n-1], _vy[n-1]); cr.line_to(_cx, _cy);
+                cr.move_to(_vertices_x[n-1], _vertices_y[n-1]);
+                cr.line_to(_cursor_x, _cursor_y);
                 cr.stroke(); cr.restore();
             }
 
@@ -810,20 +892,20 @@ namespace Planly
                 for (int i=0; i<n; i++) {
                     if (i == selected_vertex) {
                         cr.set_source_rgba(0.1, 0.3, 0.9, 1.0);
-                        cr.arc(_vx[i], _vy[i], HANDLE_RADIUS+1.5, 0, 2.0*Math.PI);
+                        cr.arc(_vertices_x[i], _vertices_y[i], HANDLE_RADIUS+1.5, 0, 2.0*Math.PI);
                         cr.fill();
                     } else {
-                        paint_handle(cr, _vx[i], _vy[i]);
+                        paint_handle(cr, _vertices_x[i], _vertices_y[i]);
                     }
                 }
                 // Indicador de cierre: verde si es válido, rojo si está bloqueado
-                if (is_drawing && n>=3 && near_first_vertex(_cx, _cy)) {
+                if (is_drawing && n>=3 && near_first_vertex(_cursor_x, _cursor_y)) {
                     if (preview_blocked) {
                         cr.set_source_rgba(0.85, 0.1, 0.1, 0.9);
                     } else {
                         cr.set_source_rgba(0.2, 0.78, 0.2, 0.9);
                     }
-                    cr.arc(_vx[0], _vy[0], HANDLE_RADIUS*2.0, 0, 2.0*Math.PI);
+                    cr.arc(_vertices_x[0], _vertices_y[0], HANDLE_RADIUS*2.0, 0, 2.0*Math.PI);
                     cr.fill();
                 }
                 if (!is_drawing) paint_bezier_handles(cr);
@@ -831,45 +913,54 @@ namespace Planly
 
             paint_segment_labels(cr);
             paint_vertex_angles(cr);
-            if (is_closed && _area_m2>0.0) {
-                double cx=0.0, cy=0.0;
+            if (is_closed && _area_square_meters>0.0) {
+                double base_center_x=0.0, base_center_y=0.0;
                 for (int i=0; i<n; i++) {
-                    cx+=_vx[i]; cy+=_vy[i];
+                    base_center_x+=_vertices_x[i]; base_center_y+=_vertices_y[i];
                 }
-                paint_label(cr, "%.2f m²".printf(_area_m2), cx/n, cy/n);
+                paint_label(cr, "%.2f m²".printf(_area_square_meters),
+                            base_center_x/n, base_center_y/n);
             }
             cr.restore();
         }
 
         private void paint_seg(Cairo.Context cr, int from, int to)
         {
-            if (_bez_out[from] || _bez_in[to]) {
-                double cp1x=_bez_out[from]?_cp_ox[from]:_vx[from];
-                double cp1y=_bez_out[from]?_cp_oy[from]:_vy[from];
-                double cp2x=_bez_in[to]   ?_cp_ix[to]  :_vx[to];
-                double cp2y=_bez_in[to]   ?_cp_iy[to]  :_vy[to];
-                cr.curve_to(cp1x, cp1y, cp2x, cp2y, _vx[to], _vy[to]);
+            if (_bezier_outgoing_active[from] || _bezier_incoming_active[to]) {
+                double cp1x=_bezier_outgoing_active[from]
+                    ?_control_point_outgoing_x[from]:_vertices_x[from];
+                double cp1y=_bezier_outgoing_active[from]
+                    ?_control_point_outgoing_y[from]:_vertices_y[from];
+                double cp2x=_bezier_incoming_active[to]
+                    ?_control_point_incoming_x[to]:_vertices_x[to];
+                double cp2y=_bezier_incoming_active[to]
+                    ?_control_point_incoming_y[to]:_vertices_y[to];
+                cr.curve_to(cp1x, cp1y, cp2x, cp2y, _vertices_x[to], _vertices_y[to]);
             } else {
-                cr.line_to(_vx[to], _vy[to]);
+                cr.line_to(_vertices_x[to], _vertices_y[to]);
             }
         }
 
         private void paint_bezier_handles(Cairo.Context cr)
         {
-            for (int i=0; i<_vx.length; i++) {
-                if (!_bez_in[i] && !_bez_out[i]) continue;
+            for (int i=0; i<_vertices_x.length; i++) {
+                if (!_bezier_incoming_active[i] && !_bezier_outgoing_active[i]) continue;
                 cr.save();
                 cr.set_line_width(0.8);
                 cr.set_source_rgba(0.4, 0.4, 0.4, 0.7);
-                if (_bez_out[i]) {
-                    cr.move_to(_vx[i], _vy[i]); cr.line_to(_cp_ox[i], _cp_oy[i]);
+                if (_bezier_outgoing_active[i]) {
+                    cr.move_to(_vertices_x[i], _vertices_y[i]);
+                    cr.line_to(_control_point_outgoing_x[i], _control_point_outgoing_y[i]);
                 }
-                if (_bez_in[i]) {
-                    cr.move_to(_vx[i], _vy[i]); cr.line_to(_cp_ix[i], _cp_iy[i]);
+                if (_bezier_incoming_active[i]) {
+                    cr.move_to(_vertices_x[i], _vertices_y[i]);
+                    cr.line_to(_control_point_incoming_x[i], _control_point_incoming_y[i]);
                 }
                 cr.stroke();
-                if (_bez_out[i]) paint_bez_dot(cr, _cp_ox[i], _cp_oy[i]);
-                if (_bez_in[i])  paint_bez_dot(cr, _cp_ix[i], _cp_iy[i]);
+                if (_bezier_outgoing_active[i])
+                    paint_bez_dot(cr, _control_point_outgoing_x[i], _control_point_outgoing_y[i]);
+                if (_bezier_incoming_active[i])
+                    paint_bez_dot(cr, _control_point_incoming_x[i], _control_point_incoming_y[i]);
                 cr.restore();
             }
         }
@@ -890,7 +981,7 @@ namespace Planly
          */
         private void paint_vertex_angles(Cairo.Context cr)
         {
-            int n = _vx.length;
+            int n = _vertices_x.length;
             if (n < 2) return;
 
             // Signo del área (shoelace) para distinguir interior de polígonos cerrados
@@ -899,7 +990,7 @@ namespace Planly
                 double a = 0.0;
                 for (int k = 0; k < n; k++) {
                     int kn = (k + 1) % n;
-                    a += _vx[k] * _vy[kn] - _vx[kn] * _vy[k];
+                    a += _vertices_x[k] * _vertices_y[kn] - _vertices_x[kn] * _vertices_y[k];
                 }
                 area_sign = (a >= 0) ? 1.0 : -1.0; // +1 = CCW, -1 = CW
             }
@@ -910,75 +1001,84 @@ namespace Planly
                 if (prev < 0 || next < 0) continue;
 
                 // Vectores desde el vértice hacia sus vecinos
-                double ax = _vx[prev] - _vx[i], ay = _vy[prev] - _vy[i];
-                double bx = _vx[next] - _vx[i], by = _vy[next] - _vy[i];
-                double ma = Math.sqrt(ax*ax + ay*ay);
-                double mb = Math.sqrt(bx*bx + by*by);
-                if (ma < 1.0 || mb < 1.0) continue;
+                double segment_a_x = _vertices_x[prev] - _vertices_x[i];
+                double segment_a_y = _vertices_y[prev] - _vertices_y[i];
+                double segment_b_x = _vertices_x[next] - _vertices_x[i];
+                double segment_b_y = _vertices_y[next] - _vertices_y[i];
+                double magnitude_a = Math.sqrt(segment_a_x*segment_a_x + segment_a_y*segment_a_y);
+                double magnitude_b = Math.sqrt(segment_b_x*segment_b_x + segment_b_y*segment_b_y);
+                if (magnitude_a < 1.0 || magnitude_b < 1.0) continue;
 
                 // Ángulo entre los dos segmentos adyacentes (0–180°)
-                double cos_a = (ax*bx + ay*by) / (ma * mb);
+                double cos_a = (segment_a_x*segment_b_x + segment_a_y*segment_b_y)
+                               / (magnitude_a * magnitude_b);
                 double angle_deg = Math.acos(cos_a.clamp(-1.0, 1.0)) * 180.0 / Math.PI;
                 if (angle_deg < 1.0) continue;
 
                 // Bisectriz = suma de los vectores unitarios
-                double ux = ax/ma + bx/mb;
-                double uy = ay/ma + by/mb;
-                double ulen = Math.sqrt(ux*ux + uy*uy);
+                double unit_x = segment_a_x/magnitude_a + segment_b_x/magnitude_b;
+                double unit_y = segment_a_y/magnitude_a + segment_b_y/magnitude_b;
+                double ulen = Math.sqrt(unit_x*unit_x + unit_y*unit_y);
 
                 if (ulen < 0.01) {
                     // Ángulo de 180°: la bisectriz es degenerada, usar perpendicular
-                    ux = -ay / ma;  uy = ax / ma;
+                    unit_x = -segment_a_y / magnitude_a;
+                    unit_y =  segment_a_x / magnitude_a;
                     ulen = 1.0;
                 } else {
-                    ux /= ulen;  uy /= ulen;
+                    unit_x /= ulen;  unit_y /= ulen;
                 }
 
                 // Para polígonos cerrados: asegurarse de que apunta al interior
                 if (is_closed && area_sign != 0.0) {
                     // Producto vectorial entrante × saliente para detectar vértice reflex
-                    double px = _vx[i] - _vx[prev], py = _vy[i] - _vy[prev];
-                    double qx = _vx[next] - _vx[i], qy = _vy[next] - _vy[i];
+                    double px = _vertices_x[i] - _vertices_x[prev];
+                    double py = _vertices_y[i] - _vertices_y[prev];
+                    double qx = _vertices_x[next] - _vertices_x[i];
+                    double qy = _vertices_y[next] - _vertices_y[i];
                     double cross = px * qy - py * qx;
                     bool convex = (area_sign * cross) > 0;
                     if (!convex) {
-                        ux = -ux; uy = -uy;
+                        unit_x = -unit_x; unit_y = -unit_y;
                     }
                 }
 
                 // ── Arco indicador del ángulo ─────────────────────────────
-                double arc_r  = 10.0;
-                double ang_a  = Math.atan2(ay, ax);  // dirección hacia prev
-                double ang_b  = Math.atan2(by, bx);  // dirección hacia next
-                double ang_m  = Math.atan2(uy, ux);  // bisectriz (interior)
+                double arc_radius = 10.0;
+                double angle_a    = Math.atan2(segment_a_y, segment_a_x); // dirección hacia prev
+                double angle_b    = Math.atan2(segment_b_y, segment_b_x); // dirección hacia next
+                double angle_bisector = Math.atan2(unit_y, unit_x);       // bisectriz (interior)
 
-                // Normalizar ang_b y ang_m en [ang_a, ang_a + 2π)
+                // Normalizar angle_b y angle_bisector en [angle_a, angle_a + 2π)
                 // para decidir si barrer CCW o CW
-                double na = ang_a;
-                double nb = ang_b; while (nb < na) nb += 2.0 * Math.PI;
-                double nm = ang_m; while (nm < na) nm += 2.0 * Math.PI;
+                double normalized_a = angle_a;
+                double normalized_b = angle_b;
+                while (normalized_b < normalized_a) normalized_b += 2.0 * Math.PI;
+                double normalized_m = angle_bisector;
+                while (normalized_m < normalized_a) normalized_m += 2.0 * Math.PI;
 
                 cr.save();
                 cr.set_line_width(1.0);
                 if (_is_selected) {
                     cr.set_source_rgba(0.8, 0.1, 0.1, 0.75);
                 } else {
-                    cr.set_source_rgba(stroke_r, stroke_g, stroke_b, 0.75);
+                    cr.set_source_rgba(stroke_color_red, stroke_color_green,
+                                       stroke_color_blue, 0.75);
                 }
 
                 cr.new_sub_path();  // evitar que Cairo conecte el punto actual con el arco
-                if (nm <= nb) {
-                    cr.arc(_vx[i], _vy[i], arc_r, ang_a, ang_b);
+                if (normalized_m <= normalized_b) {
+                    cr.arc(_vertices_x[i], _vertices_y[i], arc_radius, angle_a, angle_b);
                 } else {
-                    cr.arc_negative(_vx[i], _vy[i], arc_r, ang_a, ang_b);
+                    cr.arc_negative(_vertices_x[i], _vertices_y[i], arc_radius, angle_a, angle_b);
                 }
                 cr.stroke();
                 cr.restore();
 
                 // ── Etiqueta con el valor ──────────────────────────────────
                 paint_label(cr, "%.1f°".printf(angle_deg),
-                    _vx[i] + ux * 20.0,
-                    _vy[i] + uy * 20.0,
+                    _vertices_x[i] + unit_x * 20.0,
+                    _vertices_y[i] + unit_y * 20.0,
                     0.0);
             }
         }
@@ -992,8 +1092,8 @@ namespace Planly
          */
         private void paint_segment_labels(Cairo.Context cr)
         {
-            int n    = _vx.length;
-            int segs = is_closed ? n : n - 1;
+            int n    = _vertices_x.length;
+            int segment_count = is_closed ? n : n - 1;
 
             // Signo del área para saber qué lado es el exterior del polígono
             double area_sign = 1.0;
@@ -1001,7 +1101,7 @@ namespace Planly
                 double a = 0.0;
                 for (int k = 0; k < n; k++) {
                     int kn = (k + 1) % n;
-                    a += _vx[k] * _vy[kn] - _vx[kn] * _vy[k];
+                    a += _vertices_x[k] * _vertices_y[kn] - _vertices_x[kn] * _vertices_y[k];
                 }
                 area_sign = (a >= 0) ? 1.0 : -1.0;
             }
@@ -1013,76 +1113,79 @@ namespace Planly
             const double ARR_LEN =  5.0; // longitud de la cabeza de flecha
             const double ARR_W   =  2.5; // semiancho de la cabeza de flecha
 
-            for (int i = 0; i < segs; i++) {
+            for (int i = 0; i < segment_count; i++) {
                 int to    = (i < n - 1) ? i + 1 : 0;
-                double x1    = _vx[i], y1 = _vy[i];
-                double x2    = _vx[to], y2 = _vy[to];
+                double x1    = _vertices_x[i], y1 = _vertices_y[i];
+                double x2    = _vertices_x[to], y2 = _vertices_y[to];
                 double dx    = x2 - x1, dy = y2 - y1;
                 double chord = Math.sqrt(dx*dx + dy*dy);
                 if (chord < 30.0) continue;
 
                 // Vector unitario a lo largo del segmento y perpendicular exterior
-                double ux = dx / chord, uy = dy / chord;
-                double nx = area_sign * uy, ny = -area_sign * ux;
+                double unit_x = dx / chord, unit_y = dy / chord;
+                double normal_x = area_sign * unit_y, normal_y = -area_sign * unit_x;
 
                 // Extremos de la línea de cota
-                double d1x = x1 + nx*OFF1, d1y = y1 + ny*OFF1;
-                double d2x = x2 + nx*OFF1, d2y = y2 + ny*OFF1;
+                double dim_line_start_x = x1 + normal_x*OFF1, dim_line_start_y = y1 + normal_y*OFF1;
+                double dim_line_end_x   = x2 + normal_x*OFF1, dim_line_end_y   = y2 + normal_y*OFF1;
 
                 // Posición del label (centro de la cota desplazado hacia afuera)
-                double lx = (d1x+d2x)/2.0 + nx*OFF2;
-                double ly = (d1y+d2y)/2.0 + ny*OFF2;
+                double label_x = (dim_line_start_x+dim_line_end_x)/2.0 + normal_x*OFF2;
+                double label_y = (dim_line_start_y+dim_line_end_y)/2.0 + normal_y*OFF2;
 
                 cr.save();
                 cr.set_line_width(0.7);
-                cr.set_source_rgba(stroke_r, stroke_g, stroke_b, 0.85);
+                cr.set_source_rgba(stroke_color_red, stroke_color_green,
+                                   stroke_color_blue, 0.85);
 
                 // ── Líneas de extensión ───────────────────────────────────
                 cr.new_sub_path();
                 cr.move_to(x1, y1);
-                cr.line_to(x1 + nx*(OFF1+EXT), y1 + ny*(OFF1+EXT));
+                cr.line_to(x1 + normal_x*(OFF1+EXT), y1 + normal_y*(OFF1+EXT));
                 cr.move_to(x2, y2);
-                cr.line_to(x2 + nx*(OFF1+EXT), y2 + ny*(OFF1+EXT));
+                cr.line_to(x2 + normal_x*(OFF1+EXT), y2 + normal_y*(OFF1+EXT));
                 cr.stroke();
 
                 // ── Línea de cota ─────────────────────────────────────────
-                cr.move_to(d1x, d1y); cr.line_to(d2x, d2y);
+                cr.move_to(dim_line_start_x, dim_line_start_y);
+                cr.line_to(dim_line_end_x, dim_line_end_y);
                 cr.stroke();
 
-                // ── Flecha en d1, apunta hacia d2 (dir +ux,+uy) ──────────
-                cr.move_to(d1x, d1y);
-                cr.line_to(d1x - ARR_LEN*ux - ARR_W*uy,
-                    d1y - ARR_LEN*uy + ARR_W*ux);
-                cr.line_to(d1x - ARR_LEN*ux + ARR_W*uy,
-                    d1y - ARR_LEN*uy - ARR_W*ux);
+                // ── Flecha en dim_line_start, apunta hacia dim_line_end (+unit) ──
+                cr.move_to(dim_line_start_x, dim_line_start_y);
+                cr.line_to(dim_line_start_x - ARR_LEN*unit_x - ARR_W*unit_y,
+                    dim_line_start_y - ARR_LEN*unit_y + ARR_W*unit_x);
+                cr.line_to(dim_line_start_x - ARR_LEN*unit_x + ARR_W*unit_y,
+                    dim_line_start_y - ARR_LEN*unit_y - ARR_W*unit_x);
                 cr.close_path(); cr.fill();
 
-                // ── Flecha en d2, apunta hacia d1 (dir -ux,-uy) ──────────
-                cr.move_to(d2x, d2y);
-                cr.line_to(d2x + ARR_LEN*ux - ARR_W*uy,
-                    d2y + ARR_LEN*uy + ARR_W*ux);
-                cr.line_to(d2x + ARR_LEN*ux + ARR_W*uy,
-                    d2y + ARR_LEN*uy - ARR_W*ux);
+                // ── Flecha en dim_line_end, apunta hacia dim_line_start (-unit) ──
+                cr.move_to(dim_line_end_x, dim_line_end_y);
+                cr.line_to(dim_line_end_x + ARR_LEN*unit_x - ARR_W*unit_y,
+                    dim_line_end_y + ARR_LEN*unit_y + ARR_W*unit_x);
+                cr.line_to(dim_line_end_x + ARR_LEN*unit_x + ARR_W*unit_y,
+                    dim_line_end_y + ARR_LEN*unit_y - ARR_W*unit_x);
                 cr.close_path(); cr.fill();
 
                 cr.restore();
 
                 // ── Etiqueta ──────────────────────────────────────────────
                 paint_label(cr,
-                    format_m(Utils.convert_to_metters(seg_arc_length(i, to))),
-                    lx, ly, Math.atan2(dy, dx));
+                    format_m(DrawingMath.convert_pixels_to_meters(seg_arc_length(i, to))),
+                    label_x, label_y, Math.atan2(dy, dx));
             }
 
             // Previsualización: etiqueta simple sin cota completa
             if (is_drawing && n >= 1) {
-                double pdx   = _cx - _vx[n-1], pdy = _cy - _vy[n-1];
+                double pdx   = _cursor_x - _vertices_x[n-1];
+                double pdy   = _cursor_y - _vertices_y[n-1];
                 double plen  = Math.sqrt(pdx*pdx + pdy*pdy);
                 if (plen >= 30.0) {
                     double pangle = Math.atan2(pdy, pdx);
-                    double pperp  = pangle - Math.PI / 2.0;
-                    paint_label(cr, format_m(Utils.convert_to_metters(plen)),
-                        (_vx[n-1]+_cx)/2.0 + Math.cos(pperp)*14.0,
-                        (_vy[n-1]+_cy)/2.0 + Math.sin(pperp)*14.0,
+                    double perpendicular_angle  = pangle - Math.PI / 2.0;
+                    paint_label(cr, format_m(DrawingMath.convert_pixels_to_meters(plen)),
+                        (_vertices_x[n-1]+_cursor_x)/2.0 + Math.cos(perpendicular_angle)*14.0,
+                        (_vertices_y[n-1]+_cursor_y)/2.0 + Math.sin(perpendicular_angle)*14.0,
                         pangle);
                 }
             }

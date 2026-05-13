@@ -55,12 +55,12 @@ namespace Planly
 
         public override string get_size_m()
         {
-            return "r: %.3f m".printf(Utils.convert_to_metters(_radius_px));
+            return "r: %.3f m".printf(DrawingMath.convert_pixels_to_meters(_radius_px));
         }
 
         public override string get_area_m2()
         {
-            double r_m = Utils.convert_to_metters(_radius_px);
+            double r_m = DrawingMath.convert_pixels_to_meters(_radius_px);
             return "%.3f m\xc2\xb2".printf(Math.PI * r_m * r_m);
         }
 
@@ -69,7 +69,7 @@ namespace Planly
             cr.save();
 
             // Relleno semi-transparente
-            cr.set_source_rgba(fill_r, fill_g, fill_b, fill_a);
+            cr.set_source_rgba(fill_color_red, fill_color_green, fill_color_blue, fill_color_alpha);
             cr.arc(center_x, center_y, radius, 0, 2.0 * Math.PI);
             cr.fill_preserve();
 
@@ -78,7 +78,8 @@ namespace Planly
             if (_is_selected) {
                 cr.set_source_rgb(0.8, 0.1, 0.1);
             } else {
-                cr.set_source_rgba(stroke_r, stroke_g, stroke_b, stroke_a);
+                cr.set_source_rgba(stroke_color_red, stroke_color_green,
+                                   stroke_color_blue, stroke_color_alpha);
             }
             cr.stroke();
 
@@ -94,14 +95,14 @@ namespace Planly
             // Etiqueta de diametro en la parte superior del circulo
             // "\xe2\x8c\x80" = caracter de diametro (⌀)
             if (radius >= 20.0) {
-                double d_m = Utils.convert_to_metters(_diameter_px);
+                double d_m = DrawingMath.convert_pixels_to_meters(_diameter_px);
                 paint_label(cr, "\xe2\x8c\x80 " + format_m(d_m),
                     center_x, center_y - radius, 0.0);
             }
 
             // Etiqueta de area en el centro
             if (radius >= 30.0) {
-                double r_m  = Utils.convert_to_metters(_radius_px);
+                double r_m  = DrawingMath.convert_pixels_to_meters(_radius_px);
                 double area = Math.PI * r_m * r_m;
                 paint_label(cr, "%.2f m\xc2\xb2".printf(area),
                     center_x, center_y, 0.0);
@@ -127,8 +128,8 @@ namespace Planly
             double dy = y - center_y;
             radius = Math.sqrt(dx * dx + dy * dy);
 
-            _radius_px   = Utils.round(radius);
-            _diameter_px = Utils.round(radius * 2.0);
+            _radius_px   = DrawingMath.round(radius);
+            _diameter_px = DrawingMath.round(radius * 2.0);
         }
     }
 }

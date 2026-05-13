@@ -33,7 +33,7 @@ namespace Planly
             // Tema del sistema por defecto al arrancar y asignación de shortcuts
             //  Adw.StyleManager.get_default().color_scheme = Adw.ColorScheme.DEFAULT;
             Adw.StyleManager.get_default().color_scheme = Adw.ColorScheme.FORCE_LIGHT; // DEBUG:
-            AccelsManager.setup(this);
+            KeyboardShortcutsSetup.setup(this);
 
             var window = new Window(this);
             window.present();
