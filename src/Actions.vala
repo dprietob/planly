@@ -10,6 +10,8 @@ namespace Planly
         public const string SETTINGS = "preferences";
         public const string SHORTCUTS = "shortcuts";
         public const string ABOUT = "about";
+
+        public const string ACTIVE_TOOL  = "active-tool";
         public const string TOOL_SELECT = "tool-select";
         public const string TOOL_WALL = "tool-wall";
         public const string TOOL_COLUMN = "tool-column";
@@ -19,6 +21,7 @@ namespace Planly
         public const string TOOL_DOOR = "tool-door";
         public const string TOOL_WINDOW = "tool-window";
         public const string TOOL_FURNITURE = "tool-furniture";
+
         public const string ZOOM_IN = "zoom-in";
         public const string ZOOM_OUT = "zoom-out";
         public const string ZOOM_RESET = "zoom-reset";

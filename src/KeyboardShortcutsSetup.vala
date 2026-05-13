@@ -12,15 +12,17 @@ namespace Planly
             app.set_accels_for_action("win." + Actions.SETTINGS, {Accels.SETTINGS});
             app.set_accels_for_action("win." + Actions.SHORTCUTS, {Accels.SHORTCUTS});
             app.set_accels_for_action("win." + Actions.ABOUT, {Accels.ABOUT});
-            app.set_accels_for_action("win." + Actions.TOOL_SELECT, {Accels.TOOL_SELECT});
-            app.set_accels_for_action("win." + Actions.TOOL_WALL, {Accels.TOOL_WALL});
-            app.set_accels_for_action("win." + Actions.TOOL_COLUMN, {Accels.TOOL_COLUMN});
-            app.set_accels_for_action("win." + Actions.TOOL_BULB, {Accels.TOOL_BULB});
-            app.set_accels_for_action("win." + Actions.TOOL_OUTLET, {Accels.TOOL_OUTLET});
-            app.set_accels_for_action("win." + Actions.TOOL_FAUCET, {Accels.TOOL_FAUCET});
-            app.set_accels_for_action("win." + Actions.TOOL_DOOR, {Accels.TOOL_DOOR});
-            app.set_accels_for_action("win." + Actions.TOOL_WINDOW, {Accels.TOOL_WINDOW});
-            app.set_accels_for_action("win." + Actions.TOOL_FURNITURE, {Accels.TOOL_FURNITURE});
+
+            app.set_accels_for_action("win." + Actions.ACTIVE_TOOL + "('select')", {Accels.TOOL_SELECT});
+            app.set_accels_for_action("win." + Actions.ACTIVE_TOOL + "('wall')", {Accels.TOOL_WALL});
+            app.set_accels_for_action("win." + Actions.ACTIVE_TOOL + "('column')", {Accels.TOOL_COLUMN});
+            app.set_accels_for_action("win." + Actions.ACTIVE_TOOL + "('bulb')", {Accels.TOOL_BULB});
+            app.set_accels_for_action("win." + Actions.ACTIVE_TOOL + "('outlet')", {Accels.TOOL_OUTLET});
+            app.set_accels_for_action("win." + Actions.ACTIVE_TOOL + "('faucet')", {Accels.TOOL_FAUCET});
+            app.set_accels_for_action("win." + Actions.ACTIVE_TOOL + "('door')", {Accels.TOOL_DOOR});
+            app.set_accels_for_action("win." + Actions.ACTIVE_TOOL + "('window')", {Accels.TOOL_WINDOW});
+            app.set_accels_for_action("win." + Actions.ACTIVE_TOOL + "('furniture')", {Accels.TOOL_FURNITURE});
+
             app.set_accels_for_action("win." + Actions.ZOOM_IN, {Accels.ZOOM_IN});
             app.set_accels_for_action("win." + Actions.ZOOM_OUT, {Accels.ZOOM_OUT});
             app.set_accels_for_action("win." + Actions.ZOOM_RESET, {Accels.ZOOM_RESET});

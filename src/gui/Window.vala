@@ -85,32 +85,46 @@ namespace Planly
         }
 
         /**
-         * Registra las acciones de cambio de herramienta para que estén
-         * disponibles en la escena.
+         * Registra la acción unificada de herramienta activa.
+         *
+         * Usa una única acción estatal de tipo cadena (patrón radio GTK4):
+         * cuando el estado cambia a "wall", el botón WALL se activa y todos
+         * los demás se desactivan automáticamente sin lógica adicional.
          */
         private void setup_tools_action(Scene scene)
         {
-            var map = new GLib.HashTable<string, ToolType>(str_hash, str_equal);
-
-            map.insert(Actions.TOOL_SELECT, ToolType.SELECT);
-            map.insert(Actions.TOOL_WALL, ToolType.WALL);
-            map.insert(Actions.TOOL_COLUMN, ToolType.COLUMN);
-            map.insert(Actions.TOOL_BULB, ToolType.BULB);
-            map.insert(Actions.TOOL_OUTLET, ToolType.OUTLET);
-            map.insert(Actions.TOOL_FAUCET, ToolType.FAUCET);
-            map.insert(Actions.TOOL_DOOR, ToolType.DOOR);
-            map.insert(Actions.TOOL_WINDOW, ToolType.WINDOW);
-            map.insert(Actions.TOOL_FURNITURE, ToolType.FURNITURE);
-
-            map.for_each((action_name, tool) => {
-                var action = new GLib.SimpleAction.stateful(action_name, null, new GLib.Variant.boolean(false));
-                action.activate.connect(() => {
-                    bool current = action.get_state().get_boolean();
-                    action.set_state(new GLib.Variant.boolean(!current));
-                    scene.set_tool(tool);
-                });
-                add_action(action);
+            var action = new GLib.SimpleAction.stateful(
+                Actions.ACTIVE_TOOL,
+                GLib.VariantType.STRING,
+                new GLib.Variant.string("select")
+            );
+            action.activate.connect((param) => {
+                if (param == null) return;
+                action.set_state(param);
+                scene.set_tool(tool_type_from_key(param.get_string()));
             });
+            add_action(action);
+        }
+
+        /**
+         * Convierte la clave de cadena de una herramienta en su ToolType.
+         *
+         * @param  key  Identificador de cadena (ej. "wall", "select").
+         * @return ToolType correspondiente; SELECT si la clave no se reconoce.
+         */
+        private ToolType tool_type_from_key(string key)
+        {
+            switch (key) {
+            case "wall":      return ToolType.WALL;
+            case "column":    return ToolType.COLUMN;
+            case "bulb":      return ToolType.BULB;
+            case "outlet":    return ToolType.OUTLET;
+            case "door":      return ToolType.DOOR;
+            case "window":    return ToolType.WINDOW;
+            case "faucet":    return ToolType.FAUCET;
+            case "furniture": return ToolType.FURNITURE;
+            default:          return ToolType.SELECT;
+            }
         }
 
         /**
