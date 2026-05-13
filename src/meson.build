@@ -28,6 +28,7 @@ planly_sources = files(
   'Constants.vala',
   'Planly.vala',
   'Shortcuts.vala',
+  'UserPreferences.vala',
   'Utils.vala',
 )
 

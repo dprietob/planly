@@ -30,13 +30,35 @@ namespace Planly
 
         protected override void activate()
         {
-            // Tema del sistema por defecto al arrancar y asignación de shortcuts
-            Adw.StyleManager.get_default().color_scheme = Adw.ColorScheme.DEFAULT;
-            Shortcuts.setup(this);
-            ColorTheme.instance.load();
+            // 1. Leer preferencias guardadas (tema, etc.)
+            UserPreferences.instance.load ();
 
-            var window = new Window(this);
-            window.present();
+            // 2. Aplicar el esquema de Adwaita según la preferencia guardada
+            apply_color_scheme (UserPreferences.instance.saved_theme);
+
+            // 3. Cargar la paleta de colores del canvas (se ajusta al tema activo)
+            ColorTheme.instance.load ();
+
+            Shortcuts.setup (this);
+
+            var window = new Window (this);
+            window.present ();
+        }
+
+        /**
+         * Aplica el esquema de color de Adwaita según el nombre del tema.
+         * Con "system" (primer arranque o preferencia del usuario) sigue el SO.
+         *
+         * @param theme_name "light", "dark" o "system".
+         */
+        private void apply_color_scheme (string theme_name)
+        {
+            var style_manager = Adw.StyleManager.get_default ();
+            switch (theme_name) {
+            case "light":  style_manager.color_scheme = Adw.ColorScheme.FORCE_LIGHT; break;
+            case "dark":   style_manager.color_scheme = Adw.ColorScheme.FORCE_DARK;  break;
+            default:       style_manager.color_scheme = Adw.ColorScheme.DEFAULT;     break;
+            }
         }
     }
 }

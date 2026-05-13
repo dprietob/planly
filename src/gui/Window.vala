@@ -149,10 +149,11 @@ namespace Planly
          */
         private void setup_theme_action()
         {
+            // Estado inicial = preferencia guardada por el usuario
             var action = new GLib.SimpleAction.stateful(
                 "theme",
                 GLib.VariantType.STRING,
-                new GLib.Variant.string("dark")
+                new GLib.Variant.string(UserPreferences.instance.saved_theme)
                 );
             action.change_state.connect((act, new_state) => {
                 if (new_state == null) return;
@@ -188,6 +189,7 @@ namespace Planly
                 ColorTheme.instance.set_dark_mode (true);
                 break;
             }
+            UserPreferences.instance.save_theme (theme);
             scene.theme_changed ();
         }
     }
