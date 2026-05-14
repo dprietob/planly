@@ -16,19 +16,19 @@ planly_sources = files(
   # ── Herramientas ──────────────────────────────────────────────────────
   'gui/ToolType.vala',
   'gui/Window.vala',
-  'gui/components/Circle.vala',
   # ── Componentes dibujables ─────────────────────────────────────────────
   'gui/components/Drawable.vala',
-  'gui/components/Line.vala',
-  'gui/components/Rect.vala',
   'gui/components/Shape.vala',
+  'gui/components/Wall.vala',
   # ── Proyecto ──────────────────────────────────────────────────────────
   'project/Project.vala',
   'Accels.vala',
-  'AccelsManager.vala',
   'Actions.vala',
+  'ColorTheme.vala',
   'Constants.vala',
   'Planly.vala',
+  'Shortcuts.vala',
+  'UserPreferences.vala',
   'Utils.vala',
 )
 

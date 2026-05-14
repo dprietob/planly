@@ -2,6 +2,8 @@ namespace Planly
 {
     public class Window : Adw.ApplicationWindow
     {
+        private Scene scene;
+
         public Window (Gtk.Application app)
         {
             Object(application: app);
@@ -11,7 +13,7 @@ namespace Planly
             var header_bar = new HeaderBar();
             var tool_bar = new ToolBar();
             var status_bar = new StatusBar();
-            var scene = new Scene();
+            scene = new Scene();
 
             // Canvas dentro de un ScrolledWindow para soportar pan al hacer zoom
             var scrolled = new Gtk.ScrolledWindow();
@@ -36,8 +38,28 @@ namespace Planly
             setup_zoom_action(scene, status_bar);
             setup_theme_action();
 
-            set_default_size(WINDOW_WIDTH, WINDOW_HEIGHT);
+            // Restaurar dimensiones y estado de maximización
+            set_default_size(
+                UserPreferences.instance.saved_window_width,
+                UserPreferences.instance.saved_window_height
+            );
+            if (UserPreferences.instance.saved_is_maximized) maximize ();
             set_content(layout);
+
+            // Guardar estado al maximizar o restaurar la ventana
+            notify["maximized"].connect(() => {
+                UserPreferences.instance.save_window_state(
+                    maximized, default_width, default_height
+                );
+            });
+
+            // Guardar estado final al cerrar (captura el último tamaño si hubo resize)
+            close_request.connect(() => {
+                UserPreferences.instance.save_window_state(
+                    maximized, default_width, default_height
+                );
+                return false;
+            });
         }
 
         /**
@@ -85,32 +107,46 @@ namespace Planly
         }
 
         /**
-         * Registra las acciones de cambio de herramienta para que estén
-         * disponibles en la escena.
+         * Registra la acción unificada de herramienta activa.
+         *
+         * Usa una única acción estatal de tipo cadena (patrón radio GTK4):
+         * cuando el estado cambia a "wall", el botón WALL se activa y todos
+         * los demás se desactivan automáticamente sin lógica adicional.
          */
         private void setup_tools_action(Scene scene)
         {
-            var map = new GLib.HashTable<string, ToolType>(str_hash, str_equal);
-
-            map.insert(Actions.TOOL_SELECT, ToolType.SELECT);
-            map.insert(Actions.TOOL_WALL, ToolType.WALL);
-            map.insert(Actions.TOOL_COLUMN, ToolType.COLUMN);
-            map.insert(Actions.TOOL_BULB, ToolType.BULB);
-            map.insert(Actions.TOOL_OUTLET, ToolType.OUTLET);
-            map.insert(Actions.TOOL_FAUCET, ToolType.FAUCET);
-            map.insert(Actions.TOOL_DOOR, ToolType.DOOR);
-            map.insert(Actions.TOOL_WINDOW, ToolType.WINDOW);
-            map.insert(Actions.TOOL_FURNITURE, ToolType.FURNITURE);
-
-            map.for_each((action_name, tool) => {
-                var action = new GLib.SimpleAction.stateful(action_name, null, new GLib.Variant.boolean(false));
-                action.activate.connect(() => {
-                    bool current = action.get_state().get_boolean();
-                    action.set_state(new GLib.Variant.boolean(!current));
-                    scene.set_tool(tool);
-                });
-                add_action(action);
+            var action = new GLib.SimpleAction.stateful(
+                Actions.ACTIVE_TOOL,
+                GLib.VariantType.STRING,
+                new GLib.Variant.string("select")
+            );
+            action.activate.connect((param) => {
+                if (param == null) return;
+                action.set_state(param);
+                scene.set_tool(tool_type_from_key(param.get_string()));
             });
+            add_action(action);
+        }
+
+        /**
+         * Convierte la clave de cadena de una herramienta en su ToolType.
+         *
+         * @param  key  Identificador de cadena (ej. "wall", "select").
+         * @return ToolType correspondiente; SELECT si la clave no se reconoce.
+         */
+        private ToolType tool_type_from_key(string key)
+        {
+            switch (key) {
+            case "wall":      return ToolType.WALL;
+            case "column":    return ToolType.COLUMN;
+            case "bulb":      return ToolType.BULB;
+            case "outlet":    return ToolType.OUTLET;
+            case "door":      return ToolType.DOOR;
+            case "window":    return ToolType.WINDOW;
+            case "faucet":    return ToolType.FAUCET;
+            case "furniture": return ToolType.FURNITURE;
+            default:          return ToolType.SELECT;
+            }
         }
 
         /**
@@ -133,10 +169,11 @@ namespace Planly
          */
         private void setup_theme_action()
         {
+            // Estado inicial = preferencia guardada por el usuario
             var action = new GLib.SimpleAction.stateful(
                 "theme",
                 GLib.VariantType.STRING,
-                new GLib.Variant.string("dark")
+                new GLib.Variant.string(UserPreferences.instance.saved_theme)
                 );
             action.change_state.connect((act, new_state) => {
                 if (new_state == null) return;
@@ -149,20 +186,31 @@ namespace Planly
         /**
          * Aplica un cambio de tema.
          */
+        /**
+         * Aplica el tema visual indicado: actualiza el esquema de colores de Adwaita,
+         * actualiza la paleta del ColorTheme y redibuja el canvas.
+         *
+         * @param theme "light", "dark" o "system".
+         */
         private void apply_theme(string theme)
         {
-            var sm = Adw.StyleManager.get_default();
+            var style_manager = Adw.StyleManager.get_default();
             switch (theme) {
             case "light":
-                sm.color_scheme = Adw.ColorScheme.FORCE_LIGHT;
+                style_manager.color_scheme = Adw.ColorScheme.FORCE_LIGHT;
+                ColorTheme.instance.set_dark_mode (false);
                 break;
             case "system":
-                sm.color_scheme = Adw.ColorScheme.DEFAULT;
+                style_manager.color_scheme = Adw.ColorScheme.DEFAULT;
+                ColorTheme.instance.set_dark_mode (style_manager.dark);
                 break;
-            default:     // "dark"
-                sm.color_scheme = Adw.ColorScheme.FORCE_DARK;
+            default:  // "dark"
+                style_manager.color_scheme = Adw.ColorScheme.FORCE_DARK;
+                ColorTheme.instance.set_dark_mode (true);
                 break;
             }
+            UserPreferences.instance.save_theme (theme);
+            scene.theme_changed ();
         }
     }
 }

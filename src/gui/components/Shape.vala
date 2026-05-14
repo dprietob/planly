@@ -14,16 +14,14 @@ namespace Planly
         protected bool _has_started = false;
         protected DrawMode draw_mode    = DrawMode.NORMAL;
 
-        // Estilo: grosor de linea, color de trazo y color de relleno.
-        // Publicos para permitir edicion externa desde un futuro panel de propiedades.
-        public double stroke_r   = 0.05;
-        public double stroke_g   = 0.05;
-        public double stroke_b   = 0.05;
-        public double stroke_a   = 1.0;
-        public double fill_r     = 0.28;
-        public double fill_g     = 0.58;
-        public double fill_b     = 0.92;
-        public double fill_a     = 0.18;
+        /**
+         * Controla si se dibujan los handles de vértice en paint().
+         * true  = modo edición de vértices (doble clic en SELECT)
+         * false = modo transformación (clic simple en SELECT)
+         */
+        public bool vertex_handles_visible = false;
+
+        /** Grosor del trazo de la figura en píxeles lógicos. */
         public double line_width = 1.5;
 
         // Drawable: estado
@@ -76,7 +74,7 @@ namespace Planly
             return {
                        label,
                        "%.3f px".printf(px),
-                       "%.3f m".printf(Utils.convert_to_metters(px))
+                       "%.3f m".printf(DrawingMath.convert_pixels_to_meters(px))
             };
         }
 
@@ -136,52 +134,89 @@ namespace Planly
         }
 
         /**
-         * Pinta un texto centrado en (cx, cy) con fondo blanco semitransparente
-         * para garantizar legibilidad sobre cualquier relleno.
-         * Si vertical = true, el texto se rota -90° (lectura de abajo hacia arriba).
+         * Pinta un texto centrado en (cx, cy) rotado angle radianes.
+         * angle = 0  → horizontal   |  angle = -π/2 → vertical ascendente
+         * El ángulo se normaliza para que el texto nunca quede boca abajo.
          */
         protected void paint_label(Cairo.Context cr, string text,
-            double cx, double cy, bool vertical = false)
+            double cx, double cy, double angle = 0.0)
         {
             double font_size = 11.0;
-            double pad       = 2.5;
+            double padding   = 2.5;
+
+            // Normalizar: mantener el ángulo en (-π/2, π/2] para legibilidad
+            double normalized_angle = angle;
+            while (normalized_angle >  Math.PI / 2.0) normalized_angle -= Math.PI;
+            while (normalized_angle < -Math.PI / 2.0) normalized_angle += Math.PI;
 
             cr.save();
             cr.select_font_face("Sans", Cairo.FontSlant.NORMAL, Cairo.FontWeight.NORMAL);
             cr.set_font_size(font_size);
 
-            Cairo.TextExtents te;
-            cr.text_extents(text, out te);
+            Cairo.TextExtents text_extents;
+            cr.text_extents(text, out text_extents);
 
             cr.translate(cx, cy);
-            if (vertical) cr.rotate(-Math.PI / 2.0);
+            cr.rotate(normalized_angle);
 
-            double tx = -te.x_bearing - te.width  / 2.0;
-            double ty = -te.y_bearing - te.height / 2.0;
+            double text_x = -text_extents.x_bearing - text_extents.width  / 2.0;
+            double text_y = -text_extents.y_bearing - text_extents.height / 2.0;
 
-            // Fondo blanco semitransparente
-            cr.set_source_rgba(1.0, 1.0, 1.0, 0.88);
-            cr.rectangle(tx + te.x_bearing - pad,
-                ty + te.y_bearing - pad,
-                te.width  + pad * 2.0,
-                te.height + pad * 2.0);
+            var palette = ColorTheme.instance.active;
+
+            // Fondo de la etiqueta
+            palette.label_background.apply (cr);
+            cr.rectangle(text_x + text_extents.x_bearing - padding,
+                text_y + text_extents.y_bearing - padding,
+                text_extents.width  + padding * 2.0,
+                text_extents.height + padding * 2.0);
             cr.fill();
 
-            // Texto
-            cr.set_source_rgb(0.1, 0.1, 0.1);
-            cr.move_to(tx, ty);
+            // Texto de la etiqueta
+            palette.label_text.apply (cr);
+            cr.move_to(text_x, text_y);
             cr.show_text(text);
 
             cr.restore();
         }
 
-        // Metodos abstractos
+        /**
+         * Devuelve true si (x, y) cae sobre un handle de edición (vértice).
+         * Las figuras con vértices arrastrables sobreescriben este método.
+         */
+        public virtual bool has_handle_at (double x, double y)
+        {
+            return false;
+        }
+
+        // ── Transformaciones (sobreescribir en figuras concretas) ──────────
+
+        /** Desplaza la figura (dx, dy) en coordenadas lógicas. */
+        public virtual void translate (double dx, double dy) {}
+
+        /** Caja delimitadora alineada con los ejes en coordenadas lógicas. */
+        public virtual BBoxRect get_bbox ()
+        {
+            return { 0.0, 0.0, 0.0, 0.0 };
+        }
+
+        /** Puntos de anclaje X para el snapping de vértices con Shift. */
+        public virtual double[] get_snap_xs () { return {}; }
+
+        /** Puntos de anclaje Y para el snapping de vértices con Shift. */
+        public virtual double[] get_snap_ys () { return {}; }
+
+        // Métodos abstractos de geometría y renderizado
         public abstract void           paint(Cairo.Context cr);
         public abstract bool           contains_point(double x, double y);
         public abstract MetricLine[]   get_metrics();
         public abstract bool           is_valid();
-        public abstract void           on_mouse_pressed(double x, double y);
-        public abstract void           on_mouse_released(double x, double y);
-        public abstract void           on_mouse_dragged(double x, double y);
+
+        // Interacción de ratón — virtuales con cuerpo vacío (ISP):
+        // las subclases que necesiten interacción las sobreescriben;
+        // las que no (ej. Wall) heredan la implementación vacía.
+        public virtual void on_mouse_pressed  (double x, double y) {}
+        public virtual void on_mouse_released (double x, double y) {}
+        public virtual void on_mouse_dragged  (double x, double y) {}
     }
 }

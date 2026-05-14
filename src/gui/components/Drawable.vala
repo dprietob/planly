@@ -16,6 +16,18 @@ namespace Planly
     }
 
     /**
+     * Caja delimitadora alineada con los ejes (AABB) de una figura.
+     * Se usa para el overlay de selección y los cálculos de transformación.
+     */
+    public struct BBoxRect
+    {
+        public double x;
+        public double y;
+        public double w;
+        public double h;
+    }
+
+    /**
      * Contrato que deben cumplir todos los objetos dibujables del Scene.
      *
      * Separa renderizado (Cairo), hit-testing, métricas e interacción

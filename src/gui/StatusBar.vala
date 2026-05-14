@@ -39,9 +39,9 @@ namespace Planly
             lbl_autosave.margin_start = 10;
             lbl_autosave.margin_end = 10;
 
-            append(build_vseparator());
+            append(build_section_sep());
             //  append(zoom_box);
-            append(build_vseparator());
+            append(build_section_sep());
             append(lbl_autosave);
 
             GLib.Timeout.add_seconds(60, () => {
@@ -75,11 +75,11 @@ namespace Planly
             lbl_area.add_css_class("caption");
 
             box.append(lbl_scale);
-            box.append(build_hseparator());
+            box.append(build_item_sep());
             box.append(lbl_size_px);
-            box.append(build_hseparator());
+            box.append(build_item_sep());
             box.append(lbl_size_m);
-            box.append(build_hseparator());
+            box.append(build_item_sep());
             box.append(lbl_area);
 
             append(box);
@@ -103,7 +103,7 @@ namespace Planly
             lbl_grid.add_css_class("caption");
 
             box.append(lbl_units);
-            box.append(build_hseparator());
+            box.append(build_item_sep());
             box.append(lbl_grid);
 
             append(box);
@@ -149,8 +149,7 @@ namespace Planly
             btn_in.add_css_class("caption");
             btn_in.tooltip_text = _("Zoom in");
             btn_in.set_child(img_zoom_in);
-            btn_in.action_name = "win." + Actions.ZOOM_IN;
-            //  btn_in.clicked.connect(() => zoom_in_requested());
+            btn_in.clicked.connect(() => zoom_in_requested());
 
             box.append(btn_out);
             box.append(btn_zoom_level);
@@ -200,19 +199,21 @@ namespace Planly
             }
         }
 
-        private Gtk.Separator build_hseparator()
+        /** Separador entre elementos de una misma sección (márgenes horizontales). */
+        private Gtk.Separator build_item_sep()
         {
             return new Gtk.Separator(Gtk.Orientation.VERTICAL) {
-                       margin_start = 6,
-                       margin_end = 6,
+                margin_start = 6,
+                margin_end   = 6,
             };
         }
 
-        private Gtk.Separator build_vseparator()
+        /** Separador entre secciones (márgenes verticales). */
+        private Gtk.Separator build_section_sep()
         {
             return new Gtk.Separator(Gtk.Orientation.VERTICAL) {
-                       margin_top = 6,
-                       margin_bottom = 6,
+                margin_top    = 6,
+                margin_bottom = 6,
             };
         }
     }

@@ -31,7 +31,7 @@ namespace Planly
             // Eliminación del título por defecto
             header.set_title_widget(new Gtk.Box(Gtk.Orientation.HORIZONTAL, 0));
 
-            var planly = new Gtk.Label(Utils.get_title_formatted()){
+            var planly = new Gtk.Label(format_title()){
                 use_markup = true,
             };
 
@@ -113,6 +113,16 @@ namespace Planly
             menu_button.set_child(img);
             menu_button.add_css_class("flat");
             header.pack_end(menu_button);
+        }
+
+        /**
+         * Devuelve el texto del título formateado con nombre y versión.
+         */
+        private static string format_title()
+        {
+            string name    = "<span size='18pt' weight='bold'>" + APP_NAME + "</span>";
+            string version = "<small>" + Config.VERSION + "</small>";
+            return name + " " + version;
         }
 
         private void add_separator(Adw.HeaderBar header)
