@@ -5,7 +5,7 @@
   },
   "[vala]": {
     "editor.defaultFormatter": "zachflower.uncrustify",
-    "editor.formatOnSave": true
+    "editor.formatOnSave": false
   },
   "uncrustify.configPath.linux": "${workspaceFolder}/.vscode/uncrustify.cfg",
   "mesonbuild.configureOnOpen": false

@@ -41,6 +41,11 @@ namespace Planly
         private const double ZOOM_MAX  = 8.0;
         private double zoom_level = 1.0;
 
+        // Tamaño mínimo del canvas y margen alrededor del contenido (px lógicos)
+        private const double CANVAS_MIN_WIDTH   = 1280.0;
+        private const double CANVAS_MIN_HEIGHT  =  800.0;
+        private const double CANVAS_CONTENT_PAD =  300.0;
+
         private Shape[]  shapes      = {};
         private ToolType active_tool = ToolType.SELECT;
 
@@ -121,15 +126,22 @@ namespace Planly
         // ──────────────────────────────────────────────────────────────────
         construct {
             cache_surface = new Cairo.ImageSurface (
-                Cairo.Format.ARGB32, WINDOW_WIDTH, WINDOW_HEIGHT
+                Cairo.Format.ARGB32, (int) CANVAS_MIN_WIDTH, (int) CANVAS_MIN_HEIGHT
                 );
             cache_cr = new Cairo.Context (cache_surface);
             clear_cache_background ();
+
+            hexpand = true;
+            vexpand = true;
 
             set_focusable (true);
             update_size_request ();
             set_draw_func (draw_func);
             setup_controllers ();
+
+            // Cuando el widget crece (ej. ventana maximizada), ampliar la caché
+            // para que las figuras sean visibles en todo el viewport.
+            resize.connect (on_widget_resized);
 
             GLib.Timeout.add (16, () => {
                 if (wall_being_drawn != null) queue_draw ();
@@ -387,15 +399,14 @@ namespace Planly
 
         private void on_released (int n_press, double x, double y)
         {
-            double canvas_x = to_canvas (x);
-            double canvas_y = to_canvas (y);
-
             if (active_tool == ToolType.SELECT) {
                 interaction_type    = 0;
                 resize_corner       = -1;
                 vertex_drag_index   = -1;
                 bezier_vertex_index = -1;
                 rebuild_cache ();
+                // Actualizar size_request al soltar (no durante el arrastre)
+                update_size_request ();
                 queue_draw ();
                 if (selected_shape != null) {
                     metrics_updated (
@@ -406,7 +417,6 @@ namespace Planly
                 }
                 return;
             }
-
         }
 
         // ── on_motion ─────────────────────────────────────────────────────
@@ -586,6 +596,7 @@ namespace Planly
         {
             shapes += wall_being_drawn;
             rebuild_cache ();
+            update_size_request (); // la nueva figura puede necesitar más espacio
             wall_being_drawn = null;
             queue_draw ();
             metrics_updated ("", "", "");
@@ -1095,11 +1106,32 @@ namespace Planly
 
         // ── Helpers internos ──────────────────────────────────────────────
 
+        /**
+         * Recalcula el tamaño del DrawingArea en función del contenido actual.
+         * El mínimo es CANVAS_MIN_WIDTH × CANVAS_MIN_HEIGHT (en px lógicos).
+         * Si hay figuras cerca del borde se añade CANVAS_CONTENT_PAD de margen
+         * para que siempre haya espacio visible alrededor y aparezca el scroll.
+         */
         private void update_size_request ()
         {
+            double required_width  = CANVAS_MIN_WIDTH;
+            double required_height = CANVAS_MIN_HEIGHT;
+
+            foreach (unowned var shape in shapes) {
+                var bbox = shape.get_bbox ();
+                required_width  = double.max (required_width,  bbox.x + bbox.w + CANVAS_CONTENT_PAD);
+                required_height = double.max (required_height, bbox.y + bbox.h + CANVAS_CONTENT_PAD);
+            }
+
+            if (wall_being_drawn != null && wall_being_drawn.vertex_count > 0) {
+                var bbox = wall_being_drawn.get_bbox ();
+                required_width  = double.max (required_width,  bbox.x + bbox.w + CANVAS_CONTENT_PAD);
+                required_height = double.max (required_height, bbox.y + bbox.h + CANVAS_CONTENT_PAD);
+            }
+
             set_size_request (
-                (int)(WINDOW_WIDTH  * zoom_level),
-                (int)(WINDOW_HEIGHT * zoom_level)
+                (int)(required_width  * zoom_level),
+                (int)(required_height * zoom_level)
                 );
         }
 
@@ -1173,6 +1205,32 @@ namespace Planly
 
         // ── Cache ─────────────────────────────────────────────────────────
 
+        /**
+         * Responde al cambio de tamaño del widget (resize de ventana).
+         * Amplía la caché si el nuevo tamaño supera sus dimensiones actuales
+         * y redibuja el contenido.
+         */
+        private void on_widget_resized (int widget_width, int widget_height)
+        {
+            int needed_w = (int) Math.ceil (widget_width  / zoom_level) + 2;
+            int needed_h = (int) Math.ceil (widget_height / zoom_level) + 2;
+
+            if (needed_w > cache_surface.get_width () ||
+                needed_h > cache_surface.get_height ()) {
+                // La caché nunca se encoge, solo crece
+                int new_w = int.max (needed_w, cache_surface.get_width ());
+                int new_h = int.max (needed_h, cache_surface.get_height ());
+                cache_surface = new Cairo.ImageSurface (Cairo.Format.ARGB32, new_w, new_h);
+                cache_cr      = new Cairo.Context (cache_surface);
+                rebuild_cache ();
+            }
+            queue_draw ();
+        }
+
+        /**
+         * Reconstruye la caché Cairo con el contenido actual.
+         * No modifica el size_request para no interrumpir arrastres en curso.
+         */
         private void rebuild_cache ()
         {
             clear_cache_background ();
