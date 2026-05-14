@@ -149,8 +149,7 @@ namespace Planly
             btn_in.add_css_class("caption");
             btn_in.tooltip_text = _("Zoom in");
             btn_in.set_child(img_zoom_in);
-            btn_in.action_name = "win." + Actions.ZOOM_IN;
-            //  btn_in.clicked.connect(() => zoom_in_requested());
+            btn_in.clicked.connect(() => zoom_in_requested());
 
             box.append(btn_out);
             box.append(btn_zoom_level);
