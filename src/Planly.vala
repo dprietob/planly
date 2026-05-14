@@ -30,16 +30,11 @@ namespace Planly
 
         protected override void activate()
         {
-            // 1. Leer preferencias guardadas (tema, etc.)
             UserPreferences.instance.load ();
-
-            // 2. Aplicar el esquema de Adwaita según la preferencia guardada
-            apply_color_scheme (UserPreferences.instance.saved_theme);
-
-            // 3. Cargar la paleta de colores del canvas (se ajusta al tema activo)
             ColorTheme.instance.load ();
-
-            Shortcuts.setup (this);
+            Shortcuts.instance.setup (this);
+            
+            apply_color_scheme (UserPreferences.instance.saved_theme);
 
             var window = new Window (this);
             window.present ();
