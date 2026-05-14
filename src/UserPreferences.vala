@@ -3,9 +3,9 @@
  *
  * Fichero: ~/.config/planly/preferences.conf
  *
- * Si el fichero no existe (primer arranque), se mantienen los valores
- * predeterminados y se usa el tema del sistema operativo.
- * El fichero se crea en cuanto el usuario cambia alguna preferencia.
+ * Si el fichero no existe (primer arranque), se usan los valores
+ * predeterminados. El fichero se crea en cuanto el usuario modifica
+ * cualquier preferencia.
  */
 namespace Planly
 {
@@ -14,17 +14,26 @@ namespace Planly
         private static UserPreferences? _instance = null;
 
         /**
-         * Tema visual guardado por el usuario.
-         * Valores válidos: "light", "dark", "system".
-         * Valor predeterminado: "system" (primer arranque).
+         * Tema visual: "light", "dark" o "system".
+         * Predeterminado: "system" (primer arranque).
          */
         public string saved_theme { get; private set; default = "system"; }
 
-        // ── Acceso global ─────────────────────────────────────────────────
+        /**
+         * Ancho de ventana guardado.
+         * Predeterminado: WINDOW_WIDTH (1280 px).
+         */
+        public int saved_window_width { get; private set; default = WINDOW_WIDTH; }
 
         /**
-         * Instancia única de las preferencias del usuario.
+         * Alto de ventana guardado.
+         * Predeterminado: WINDOW_HEIGHT (800 px).
          */
+        public int saved_window_height { get; private set; default = WINDOW_HEIGHT; }
+
+        // ── Acceso global ─────────────────────────────────────────────────
+
+        /** Instancia única de las preferencias del usuario. */
         public static UserPreferences instance {
             get {
                 if (_instance == null) _instance = new UserPreferences ();
@@ -36,8 +45,7 @@ namespace Planly
 
         /**
          * Lee las preferencias guardadas en disco.
-         * Si el fichero no existe (primer arranque) no hace nada;
-         * se usan los valores predeterminados.
+         * Si el fichero no existe (primer arranque) no hace nada.
          */
         public void load ()
         {
@@ -62,18 +70,36 @@ namespace Planly
                 string key   = line.substring (0, separator_index).strip ();
                 string value = line.substring (separator_index + 1).strip ();
 
-                if (key == "theme") saved_theme = value;
+                switch (key) {
+                case "theme":         saved_theme         = value;          break;
+                case "window_width":  saved_window_width  = int.parse (value); break;
+                case "window_height": saved_window_height = int.parse (value); break;
+                }
             }
         }
 
         /**
-         * Guarda el tema elegido por el usuario y lo persiste en disco.
+         * Guarda el tema elegido por el usuario.
          *
-         * @param theme_name Nombre del tema: "light", "dark" o "system".
+         * @param theme_name "light", "dark" o "system".
          */
         public void save_theme (string theme_name)
         {
             saved_theme = theme_name;
+            write_to_disk ();
+        }
+
+        /**
+         * Guarda el tamaño de la ventana principal.
+         * Se llama al cerrar la ventana para restaurarlo en el siguiente arranque.
+         *
+         * @param width  Anchura en píxeles.
+         * @param height Altura en píxeles.
+         */
+        public void save_window_size (int width, int height)
+        {
+            saved_window_width  = width;
+            saved_window_height = height;
             write_to_disk ();
         }
 
@@ -101,7 +127,11 @@ namespace Planly
             string content =
                 "# Planly — Preferencias del usuario\n"
                 + "# tema: light (claro), dark (oscuro), system (según el sistema)\n"
-                + "theme = " + saved_theme + "\n";
+                + "theme = " + saved_theme + "\n"
+                + "\n"
+                + "# Tamaño de la ventana principal (en píxeles)\n"
+                + "window_width  = %d\n".printf (saved_window_width)
+                + "window_height = %d\n".printf (saved_window_height);
 
             try {
                 GLib.FileUtils.set_contents (path, content);

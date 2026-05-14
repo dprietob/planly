@@ -38,8 +38,18 @@ namespace Planly
             setup_zoom_action(scene, status_bar);
             setup_theme_action();
 
-            set_default_size(WINDOW_WIDTH, WINDOW_HEIGHT);
+            // Restaurar el tamaño guardado (o usar el predeterminado en primer arranque)
+            set_default_size(
+                UserPreferences.instance.saved_window_width,
+                UserPreferences.instance.saved_window_height
+            );
             set_content(layout);
+
+            // Guardar el tamaño al cerrar la ventana
+            close_request.connect(() => {
+                UserPreferences.instance.save_window_size(default_width, default_height);
+                return false;
+            });
         }
 
         /**
