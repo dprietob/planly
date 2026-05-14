@@ -10,6 +10,7 @@ namespace Planly
         public const string SETTINGS = "<Ctrl>K";
         public const string SHORTCUTS = "<Ctrl>question";
         public const string ABOUT = "<Ctrl>comma";
+
         public const string TOOL_SELECT = "<Alt>1";
         public const string TOOL_WALL = "<Alt>2";
         public const string TOOL_COLUMN = "<Alt>3";
@@ -19,6 +20,7 @@ namespace Planly
         public const string TOOL_DOOR = "<Alt>7";
         public const string TOOL_WINDOW = "<Alt>8";
         public const string TOOL_FURNITURE = "<Alt>9";
+        
         public const string ZOOM_IN = "<Ctrl>plus";
         public const string ZOOM_OUT = "<Ctrl>minus";
         public const string ZOOM_RESET = "<Ctrl>0";

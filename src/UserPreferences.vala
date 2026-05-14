@@ -13,23 +13,17 @@ namespace Planly
     {
         private static UserPreferences? _instance = null;
 
-        /**
-         * Tema visual: "light", "dark" o "system".
-         * Predeterminado: "system" (primer arranque).
-         */
+        /** Tema visual: "light", "dark" o "system". Predeterminado: "system". */
         public string saved_theme { get; private set; default = "system"; }
 
-        /**
-         * Ancho de ventana guardado.
-         * Predeterminado: WINDOW_WIDTH (1280 px).
-         */
+        /** Anchura de ventana guardada. Predeterminado: WINDOW_WIDTH (1280 px). */
         public int saved_window_width { get; private set; default = WINDOW_WIDTH; }
 
-        /**
-         * Alto de ventana guardado.
-         * Predeterminado: WINDOW_HEIGHT (800 px).
-         */
+        /** Altura de ventana guardada. Predeterminado: WINDOW_HEIGHT (800 px). */
         public int saved_window_height { get; private set; default = WINDOW_HEIGHT; }
+
+        /** Si la ventana estaba maximizada al cerrar. Predeterminado: false. */
+        public bool saved_is_maximized { get; private set; default = false; }
 
         // ── Acceso global ─────────────────────────────────────────────────
 
@@ -71,9 +65,10 @@ namespace Planly
                 string value = line.substring (separator_index + 1).strip ();
 
                 switch (key) {
-                case "theme":         saved_theme         = value;          break;
-                case "window_width":  saved_window_width  = int.parse (value); break;
-                case "window_height": saved_window_height = int.parse (value); break;
+                case "theme":            saved_theme         = value;                    break;
+                case "window_width":     saved_window_width  = int.parse (value);        break;
+                case "window_height":    saved_window_height = int.parse (value);        break;
+                case "window_maximized": saved_is_maximized  = (value == "true");        break;
                 }
             }
         }
@@ -90,14 +85,16 @@ namespace Planly
         }
 
         /**
-         * Guarda el tamaño de la ventana principal.
-         * Se llama al cerrar la ventana para restaurarlo en el siguiente arranque.
+         * Guarda el estado completo de la ventana principal.
+         * Se llama al maximizar, restaurar o cerrar la ventana.
          *
-         * @param width  Anchura en píxeles.
-         * @param height Altura en píxeles.
+         * @param is_maximized  Si la ventana está maximizada.
+         * @param width         Anchura "natural" (pre-maximización) en píxeles.
+         * @param height        Altura "natural" (pre-maximización) en píxeles.
          */
-        public void save_window_size (int width, int height)
+        public void save_window_state (bool is_maximized, int width, int height)
         {
+            saved_is_maximized  = is_maximized;
             saved_window_width  = width;
             saved_window_height = height;
             write_to_disk ();
@@ -129,9 +126,10 @@ namespace Planly
                 + "# tema: light (claro), dark (oscuro), system (según el sistema)\n"
                 + "theme = " + saved_theme + "\n"
                 + "\n"
-                + "# Tamaño de la ventana principal (en píxeles)\n"
-                + "window_width  = %d\n".printf (saved_window_width)
-                + "window_height = %d\n".printf (saved_window_height);
+                + "# Estado de la ventana principal\n"
+                + "window_width     = %d\n".printf (saved_window_width)
+                + "window_height    = %d\n".printf (saved_window_height)
+                + "window_maximized = %s\n".printf (saved_is_maximized ? "true" : "false");
 
             try {
                 GLib.FileUtils.set_contents (path, content);

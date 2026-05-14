@@ -38,16 +38,26 @@ namespace Planly
             setup_zoom_action(scene, status_bar);
             setup_theme_action();
 
-            // Restaurar el tamaño guardado (o usar el predeterminado en primer arranque)
+            // Restaurar dimensiones y estado de maximización
             set_default_size(
                 UserPreferences.instance.saved_window_width,
                 UserPreferences.instance.saved_window_height
             );
+            if (UserPreferences.instance.saved_is_maximized) maximize ();
             set_content(layout);
 
-            // Guardar el tamaño al cerrar la ventana
+            // Guardar estado al maximizar o restaurar la ventana
+            notify["maximized"].connect(() => {
+                UserPreferences.instance.save_window_state(
+                    maximized, default_width, default_height
+                );
+            });
+
+            // Guardar estado final al cerrar (captura el último tamaño si hubo resize)
             close_request.connect(() => {
-                UserPreferences.instance.save_window_size(default_width, default_height);
+                UserPreferences.instance.save_window_state(
+                    maximized, default_width, default_height
+                );
                 return false;
             });
         }
